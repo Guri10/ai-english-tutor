@@ -50,45 +50,59 @@ setup quirks*, not design decisions.
 4. **Design spec broken into 6 GitHub issues** (via `to-issues`), all
    `needs-triage`, chained with native blocking dependencies #1→#2→...→#6.
    See "Next steps" below for the list.
-5. **Issue #1 (app scaffold + magic-link auth) — in progress.** Triaged to
-   `ready-for-agent` with an agent brief posted. Implemented with TDD so far:
+5. **Issue #1 (app scaffold + magic-link auth) — done, not yet closed on the tracker.**
    - Next.js App Router scaffold merged into repo root (Next.js 16.2.10,
-     React 19.2.4, Tailwind v4). `package.json`/`tsconfig.json` now serve
-     both the app and the `tsx` prototype script — both verified working.
-   - `@supabase/ssr` + `@supabase/supabase-js` installed. Browser/server
-     client factories at `lib/supabase/{client,server}.ts`, following
-     current Supabase SSR conventions (`getAll`/`setAll` cookies,
-     `getClaims()` for auth checks — never `getSession()` server-side).
+     React 19.2.4, Tailwind v4). `package.json`/`tsconfig.json` serve both
+     the app and the `tsx` prototype script.
+   - `@supabase/ssr` + `@supabase/supabase-js`. Browser/server client
+     factories at `lib/supabase/{client,server}.ts`, using a shared
+     validated `lib/supabase/env.ts#getSupabaseEnv()` (throws a clear error
+     if the env vars are missing, instead of an opaque SDK crash).
    - **`proxy.ts` at repo root** (not `middleware.ts` — Next.js 16 renamed
-     the file convention; see Environment quirks below) gates `/practice`.
-     The redirect *decision* logic is pure and TDD'd:
-     `lib/auth/route-guard.ts` + its test (10 passing tests, vitest).
-   - Sign-in page (`app/sign-in/`) with a magic-link request form
-     (`useActionState` + a server action). Callback route
-     (`app/auth/callback/route.ts`) exchanges the code for a session.
-     `app/practice/` is a protected stub (shows signed-in email + sign-out)
-     — will become the real practice UI in issue #3.
-   - Verified locally: `npm test` (10/10 pass), `npm run lint` (clean),
-     `npm run build` (succeeds — `/` and `/sign-in` static, `/practice` and
-     `/auth/callback` dynamic, Proxy registered), dev server manually
-     checked (landing page renders, sign-in form renders, `/practice`
-     307-redirects to `/sign-in?redirectTo=%2Fpractice` when signed out),
-     prototype script still runs.
-   - **Not yet done**: no live Supabase project exists, so magic-link
-     sign-in has never actually been exercised end-to-end, and nothing is
-     deployed to Vercel. `.env.local` currently holds placeholder values
-     (`https://placeholder.supabase.co`) just to unblock local dev/build —
-     **these are not real credentials**. Blocked on the user creating a
-     Supabase project + connecting a Vercel project (they've been given
-     the exact steps); once they hand over the real
-     `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`,
-     swap them into `.env.local` (local) and Vercel's project env vars
-     (deployed), then verify the real magic-link flow and close out issue
-     #1's remaining acceptance criteria.
+     the file convention; see Environment quirks) gates `/practice*` via
+     `getClaims()`. Redirect decision logic is pure and TDD'd in
+     `lib/auth/route-guard.ts` (27 passing tests, vitest): `isProtectedPath`,
+     `resolveProtectedRouteRedirect`, `sanitizeNextPath` (open-redirect
+     guard — resolves `next` via a real `new URL()` against a fixed sandbox
+     origin rather than hand-rolled bypass checks), `buildAuthCallbackUrl`
+     (embeds the sanitized post-login return path in the magic-link's
+     callback URL).
+   - Sign-in page reads `?redirectTo=`, forwards it through the form as a
+     hidden field, the server action embeds it in the callback URL — the
+     full post-login return-to-where-you-were path is wired end-to-end
+     (verified live: `/practice/session-123` while signed out → redirectTo
+     survives all the way to the sign-in page's hidden field).
+   - `app/auth/callback/route.ts` exchanges the code for a session, logs
+     failures (previously silently swallowed), redirects via `next`.
+     `app/practice/` is a protected stub (signed-in email + sign-out) —
+     becomes the real practice UI in issue #3.
+   - **Live infra wired and verified**: real Supabase project
+     (`euiqdofazvumnkigoqzf.supabase.co`), magic-link sign-in tested
+     end-to-end against it (both locally and confirmed the request/response
+     cycle succeeds). Deployed to Vercel — production is
+     `https://ai-english-tutor-beta.vercel.app` (project `ai-english-tutor`
+     under `atharvas-projects-9b6f5898`; a stray duplicate project
+     `ai-english-tutor-hah5` from an earlier misconfigured import was
+     found and deleted). `NEXT_PUBLIC_SUPABASE_URL`,
+     `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, and `NEXT_PUBLIC_SITE_URL` are
+     all set in Vercel (Production + Preview). Supabase's redirect-URL
+     allowlist has both `http://localhost:3000/auth/callback` (keep this —
+     local dev needs it) and the production callback URL.
+   - **Fresh-context code review done** (high effort, 8-angle multi-agent):
+     8 findings, all fixed — dead redirect-return path, swallowed callback
+     errors, a matcher gap (image-extension exclusion wasn't scoped to
+     `_next/`, would've let a future protected route bypass auth entirely),
+     unvalidated env vars, `sanitizeNextPath`'s architecture (now delegates
+     to the real URL parser instead of a hand-rolled bypass denylist — this
+     is the fix that also closed the redirect-return-path work above),
+     duplicated env var access, an inconsistent redirect construction, and
+     an accidentally-narrowed `.gitignore` pattern. `npm test` (27/27),
+     lint, and build all clean; production redeployed and reverified.
+   - **Still open**: close issue #1 on the tracker (see Next steps).
 
 ## Not started yet
 
-- The rest of issue #1 (live Supabase project, live Vercel deploy — see above).
+- Closing issue #1 on the tracker.
 - Supabase schema (the 6 tables in spec §2) — issue #2.
 - Realtime API session-orchestration route (spec §1, §3) — issue #3.
 - Core UI (start practice / push-to-talk mic / end session / recap) — issue #3.
@@ -138,7 +152,7 @@ setup quirks*, not design decisions.
 The design spec has been broken into 6 vertical-slice GitHub issues (via
 `to-issues`), chained with native blocking dependencies in order:
 
-1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — `ready-for-agent`, **in progress** (see "Done so far" #5). Blocked by: none.
+1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — `ready-for-agent`, **implementation + review done, not yet closed** (see "Done so far" #5). Blocked by: none.
 2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — `needs-triage`. Blocked by #1
 3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — `needs-triage`. Blocked by #2. Folds the now-trusted `machine.ts` into the real app.
 4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — `needs-triage`. Blocked by #3
@@ -148,7 +162,7 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: get real Supabase/Vercel credentials from the user (see
-"Done so far" #5's last bullet), verify the live magic-link flow and
-deployment, then code-review issue #1 in a fresh context before closing it.
-Then triage #2 from `needs-triage` to `ready-for-agent` and repeat.
+Immediate next step: close issue #1 (implemented, fresh-context-reviewed,
+fixes applied and deployed — see "Done so far" #5). Then triage #2 from
+`needs-triage` to `ready-for-agent` and repeat the implement → review →
+close cycle.
