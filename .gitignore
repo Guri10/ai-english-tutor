@@ -1,1 +1,43 @@
-node_modules/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (never commit secrets)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# personal Claude Code permission grants (not shared config)
+.claude/settings.local.json
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

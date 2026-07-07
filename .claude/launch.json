@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": [
+        "-c",
+        "export PATH=\"$HOME/.nvm/versions/node/v23.7.0/bin:$PATH\"; exec node node_modules/next/dist/bin/next dev --disable-source-maps"
+      ],
+      "port": 3000
+    }
+  ]
+}
