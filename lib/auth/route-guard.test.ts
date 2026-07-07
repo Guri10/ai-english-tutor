@@ -75,4 +75,30 @@ describe("sanitizeNextPath", () => {
   test("a full absolute URL falls back to the default", () => {
     expect(sanitizeNextPath("https://evil.com")).toBe("/practice");
   });
+
+  // The WHATWG URL parser strips ASCII tab/newline/CR *anywhere* in the
+  // string before parsing, so a value that looks like a single-segment
+  // path to a naive prefix check can still resolve as protocol-relative
+  // once actually parsed via `new URL()`.
+  test("a tab-interrupted protocol-relative path falls back to the default", () => {
+    expect(sanitizeNextPath("/\t/evil.com")).toBe("/practice");
+  });
+
+  test("a newline-interrupted protocol-relative path falls back to the default", () => {
+    expect(sanitizeNextPath("/\n/evil.com")).toBe("/practice");
+  });
+
+  test("a carriage-return-interrupted protocol-relative path falls back to the default", () => {
+    expect(sanitizeNextPath("/\r/evil.com")).toBe("/practice");
+  });
+
+  test("a tab-interrupted backslash path falls back to the default", () => {
+    expect(sanitizeNextPath("/\t\\evil.com")).toBe("/practice");
+  });
+
+  test("control characters are stripped from an otherwise-legitimate path", () => {
+    expect(sanitizeNextPath("/practice/\tsession-1")).toBe(
+      "/practice/session-1"
+    );
+  });
 });
