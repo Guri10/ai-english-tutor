@@ -17,7 +17,14 @@ setup quirks*, not design decisions.
 ## Done so far
 
 1. **Design spec** committed: `docs/superpowers/specs/2026-07-07-ai-speaking-practice-design.md`.
-2. **Push-to-talk state machine prototype** (throwaway, per the design spec's
+2. **Issue tracker set up** (via `setup-matt-pocock-skills`): GitHub Issues at
+   [Guri10/ai-english-tutor](https://github.com/Guri10/ai-english-tutor) (private repo,
+   remote now pushed). PRs are not a triage surface. Default triage label
+   vocabulary. Single-context domain docs layout. Config lives in
+   `CLAUDE.md` (`## Agent skills` block) + `docs/agents/{issue-tracker,triage-labels,domain}.md`.
+   The plan will now come out as GitHub issues (via `to-issues`) instead of
+   a single plan doc.
+3. **Push-to-talk state machine prototype** (throwaway, per the design spec's
    §5 Testing note): `prototypes/push-to-talk/`
    - `machine.ts` — pure reducer, portable into the real app once validated.
    - `tui.ts` — terminal shell to drive it by hand. Run: `npm run prototype:push-to-talk`.
