@@ -1,3 +1,8 @@
+See `AGENTS.md` for the full workflow (issue tracker conventions, the
+implement → review → close cycle, domain docs, environment quirks) — it's
+written to make sense for any coding agent, not just Claude Code. The
+sections below add Claude-Code-specific skill invocations on top of that.
+
 ## Agent skills
 
 ### Issue tracker
