@@ -98,11 +98,13 @@ setup quirks*, not design decisions.
      duplicated env var access, an inconsistent redirect construction, and
      an accidentally-narrowed `.gitignore` pattern. `npm test` (27/27),
      lint, and build all clean; production redeployed and reverified.
-   - **Still open**: close issue #1 on the tracker (see Next steps).
+   - **Issue #1 is closed.** One post-close fix needed (see Environment
+     quirks): the review's `?next=` addition to the callback URL broke
+     Supabase's Redirect URLs match, silently falling back to Site URL —
+     fixed in the Supabase dashboard, confirmed resolved by the user.
 
 ## Not started yet
 
-- Closing issue #1 on the tracker.
 - Supabase schema (the 6 tables in spec §2) — issue #2.
 - Realtime API session-orchestration route (spec §1, §3) — issue #3.
 - Core UI (start practice / push-to-talk mic / end session / recap) — issue #3.
@@ -146,6 +148,20 @@ setup quirks*, not design decisions.
   shell profile). `.claude/launch.json`'s `dev` config already has both
   fixes baked in — just use `preview_start` normally, no need to re-derive
   this.
+- **Supabase's Redirect URLs allowlist entries need a wildcard, not an
+  exact match.** After the code review added a `?next=<path>` query string
+  to the magic-link callback URL (`buildAuthCallbackUrl` in
+  `lib/auth/route-guard.ts`), the exact-match Redirect URL entries added
+  earlier (bare `.../auth/callback`) stopped matching. Supabase doesn't
+  error in this case — it silently falls back to the Site URL setting
+  instead, which is easy to misdiagnose (symptom: the magic link lands on
+  the bare Site URL root with just `?code=...`, no `/auth/callback` path,
+  e.g. `http://localhost:3000/?code=...` if Site URL was left at its
+  project-creation default). Fixed by changing both Redirect URL entries to
+  `.../auth/callback**` (wildcard suffix) and setting Site URL to the
+  production URL instead of leaving it at the localhost default. If any
+  future change alters the callback URL's query string shape again,
+  re-check this.
 
 ## Next steps
 
