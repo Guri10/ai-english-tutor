@@ -12,23 +12,42 @@ export function resolveProtectedRouteRedirect(
 
 const DEFAULT_NEXT_PATH = "/practice";
 
+// A fixed, unroutable placeholder origin used only to detect whether `next`
+// resolves off-site. Its value never leaves this function.
+const SANDBOX_ORIGIN = "http://sanitize-next-path.invalid";
+
 // Guards against open-redirect tricks (protocol-relative "//evil.com",
-// backslash variants, and domain-suffix tricks like ".evil.com") by only
-// ever accepting a single-segment-rooted relative path.
+// backslash variants — special-scheme URLs treat "\" as "/", domain-suffix
+// tricks like ".evil.com", and parser-differential tricks like tab/newline/
+// CR-interrupted paths) by resolving `next` with the real URL parser against
+// a fixed sandbox origin and requiring the result to still be on that origin.
+// Delegating to `new URL()` — rather than hand-rolling checks for each
+// known bypass — means any future parsing quirk it accounts for is covered
+// automatically instead of needing its own special case here.
 //
-// Strips ASCII tab/newline/CR before validating, mirroring the WHATWG URL
-// parser's own preprocessing step (it removes those characters from
-// *anywhere* in the input, not just the ends). Without this, a value like
-// "/\t/evil.com" looks like a single-segment path to a naive prefix check
-// but reparses as protocol-relative ("//evil.com") once `new URL()` — or a
-// browser's Location handling — actually parses it: a parser-differential
-// open redirect.
+// Only single-segment-rooted paths (starting with exactly one "/") are
+// accepted at all; anything else (no leading slash, protocol-relative,
+// absolute URLs) falls back to the default rather than being resolved as a
+// same-origin path, so the accepted shape stays predictable.
 export function sanitizeNextPath(next: string | null): string {
-  if (!next) return DEFAULT_NEXT_PATH;
-  const stripped = next.replace(/[\t\n\r]/g, "");
-  if (!stripped.startsWith("/")) return DEFAULT_NEXT_PATH;
-  if (stripped.startsWith("//") || stripped.startsWith("/\\")) {
+  if (!next || !next.startsWith("/")) return DEFAULT_NEXT_PATH;
+  let url: URL;
+  try {
+    url = new URL(next, SANDBOX_ORIGIN);
+  } catch {
     return DEFAULT_NEXT_PATH;
   }
-  return stripped;
+  if (url.origin !== SANDBOX_ORIGIN) return DEFAULT_NEXT_PATH;
+  return url.pathname + url.search + url.hash;
+}
+
+// Builds the callback URL Supabase redirects to after a magic-link click,
+// embedding the (sanitized) post-login destination so the callback route
+// can send the user back to where they started.
+export function buildAuthCallbackUrl(
+  siteUrl: string,
+  next: string | null
+): string {
+  const safeNext = sanitizeNextPath(next);
+  return `${siteUrl}/auth/callback?next=${encodeURIComponent(safeNext)}`;
 }

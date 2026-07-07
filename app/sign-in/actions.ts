@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { buildAuthCallbackUrl } from "@/lib/auth/route-guard";
 
 export type MagicLinkState = {
   status: "idle" | "sent" | "error";
@@ -16,11 +17,16 @@ export async function requestMagicLink(
     return { status: "error", message: "Enter your email address." };
   }
 
+  const redirectTo = formData.get("redirectTo");
   const supabase = await createClient();
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
+  const emailRedirectTo = buildAuthCallbackUrl(
+    siteUrl,
+    typeof redirectTo === "string" ? redirectTo : null
+  );
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: `${siteUrl}/auth/callback` },
+    options: { emailRedirectTo },
   });
 
   if (error) {

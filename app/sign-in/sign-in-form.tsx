@@ -5,7 +5,7 @@ import { requestMagicLink, type MagicLinkState } from "./actions";
 
 const initialState: MagicLinkState = { status: "idle" };
 
-export function SignInForm() {
+export function SignInForm({ redirectTo }: { redirectTo?: string }) {
   const [state, formAction, pending] = useActionState(
     requestMagicLink,
     initialState
@@ -17,6 +17,9 @@ export function SignInForm() {
 
   return (
     <form action={formAction} className="flex w-full max-w-sm flex-col gap-4">
+      {redirectTo && (
+        <input type="hidden" name="redirectTo" value={redirectTo} />
+      )}
       <input
         type="email"
         name="email"

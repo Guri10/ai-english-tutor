@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  buildAuthCallbackUrl,
   isProtectedPath,
   resolveProtectedRouteRedirect,
   sanitizeNextPath,
@@ -99,6 +100,26 @@ describe("sanitizeNextPath", () => {
   test("control characters are stripped from an otherwise-legitimate path", () => {
     expect(sanitizeNextPath("/practice/\tsession-1")).toBe(
       "/practice/session-1"
+    );
+  });
+});
+
+describe("buildAuthCallbackUrl", () => {
+  test("embeds the sanitized next path as a query param", () => {
+    expect(
+      buildAuthCallbackUrl("http://localhost:3000", "/practice/session-1")
+    ).toBe("http://localhost:3000/auth/callback?next=%2Fpractice%2Fsession-1");
+  });
+
+  test("falls back to the default next path when none given", () => {
+    expect(buildAuthCallbackUrl("http://localhost:3000", null)).toBe(
+      "http://localhost:3000/auth/callback?next=%2Fpractice"
+    );
+  });
+
+  test("sanitizes an unsafe next path before embedding it in the outbound email link", () => {
+    expect(buildAuthCallbackUrl("http://localhost:3000", "//evil.com")).toBe(
+      "http://localhost:3000/auth/callback?next=%2Fpractice"
     );
   });
 });
