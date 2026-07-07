@@ -1,5 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { isProtectedPath, resolveProtectedRouteRedirect } from "./route-guard";
+import {
+  isProtectedPath,
+  resolveProtectedRouteRedirect,
+  sanitizeNextPath,
+} from "./route-guard";
 
 describe("isProtectedPath", () => {
   test("the practice route is protected", () => {
@@ -44,5 +48,31 @@ describe("resolveProtectedRouteRedirect", () => {
 
   test("authenticated visitor to a public route is not redirected", () => {
     expect(resolveProtectedRouteRedirect("/", true)).toBeNull();
+  });
+});
+
+describe("sanitizeNextPath", () => {
+  test("a plain relative path is kept as-is", () => {
+    expect(sanitizeNextPath("/practice")).toBe("/practice");
+  });
+
+  test("null falls back to the default", () => {
+    expect(sanitizeNextPath(null)).toBe("/practice");
+  });
+
+  test("a protocol-relative path ('//evil.com') falls back to the default", () => {
+    expect(sanitizeNextPath("//evil.com")).toBe("/practice");
+  });
+
+  test("a backslash-based protocol-relative path falls back to the default", () => {
+    expect(sanitizeNextPath("/\\evil.com")).toBe("/practice");
+  });
+
+  test("a domain-suffix trick ('.evil.com', no leading slash) falls back to the default", () => {
+    expect(sanitizeNextPath(".evil.com/phish")).toBe("/practice");
+  });
+
+  test("a full absolute URL falls back to the default", () => {
+    expect(sanitizeNextPath("https://evil.com")).toBe("/practice");
   });
 });
