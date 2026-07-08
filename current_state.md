@@ -136,17 +136,109 @@ setup quirks*, not design decisions.
      (`20260708041341_tighten_core_schema.sql`) carries the schema-level
      fixes; verified clean against both security and performance
      advisors both times. `npm test` (38/38), lint, build all clean.
-   - **Not yet done**: closing issue #2 on the tracker.
+   - **Issue #2 is closed.**
+7. **Issue #3 (session orchestration route + core push-to-talk voice loop)
+   — implemented, reviewed, manually verified live, closed.**
+   - `OPENAI_API_KEY` added to `.env.local` (server-only, never
+     `NEXT_PUBLIC_`) — **not yet added to Vercel**, so production isn't live
+     for this feature until that's done (see "Next steps").
+   - `openai` npm package (`^6.45.0`) added as a dependency — its shipped
+     TypeScript types for `client.realtime.clientSecrets` were used as the
+     authoritative source for the Realtime API's request/response shapes
+     (nested `session.audio.input/output`, `turn_detection: null` to
+     disable server VAD) instead of trusting scraped docs, after web
+     search/fetch on the docs site kept returning incomplete/truncated
+     JSON schemas.
+   - `POST /api/realtime-session`: auth-gated (401 if signed out), reads
+     `student_state` + `recurring_mistakes` + `profiles.correction_mode`
+     (`lib/realtime/fetch-session-context.ts`), builds a system prompt
+     (`lib/realtime/build-system-prompt.ts`, TDD'd), mints an ephemeral
+     `ek_...` client secret via `openai.realtime.clientSecrets.create`
+     (502 JSON on mint failure, never the raw API key reaching the
+     browser).
+   - `lib/realtime/session-machine.ts`: the prototype's reducer
+     (`prototypes/push-to-talk/machine.ts`) ported in, plus a new
+     `STUDENT_TRANSCRIPT` action (the prototype only modeled a placeholder
+     string, not real transcribed text) and a narrowed exception allowing
+     `RESPONSE_START` from `ready` *only at turn 0* — the tutor's unprompted
+     opening greeting. Full vitest suite covering every edge case
+     `prototypes/push-to-talk/NOTES.md` verified by hand, now as real
+     automated tests.
+   - `app/practice/practice-session.tsx`: the client push-to-talk UI.
+     WebRTC (`RTCPeerConnection` + `oai-events` data channel) per the
+     official WebRTC guide's flow — mic muted (`track.enabled = false`)
+     between turns, unmuted only while the button is held, `input_audio_
+     buffer.commit` + `response.create` sent explicitly on release (server
+     VAD off throughout, matching spec §3). `lib/realtime/map-server-event.ts`
+     (TDD'd, pure) maps incoming data-channel events to reducer actions,
+     including an `item_id → turn` correlation map so an async input-
+     transcription-completed event lands on the right transcript entry even
+     if a later turn has already started.
+   - `app/practice/actions.ts`'s new `endPracticeSession` server action
+     persists a `sessions` row + `session_transcripts` row on session end
+     (`lib/realtime/shape-session-end.ts`, TDD'd); `sessions.status` keeps
+     its schema default of `pending_summary` since no summarization exists
+     yet (issue #4's job).
+   - **Manually verified live** (Playwright, real Supabase auth + real
+     OpenAI Realtime API, not mocked): full golden path — connect, AI opens
+     with a scenario-appropriate spoken greeting unprompted, push-to-talk
+     turn (mic down → recording → commit → tutor replies in context), end
+     session → "Session saved." persisted. No console errors. (Chromium's
+     fake test audio device produces silence/gibberish, so transcribed
+     student text was nonsense — expected, not a bug; the *mechanism* — both
+     directions of transcript capture, turn-taking, persistence — is what
+     was being verified.)
+   - Fresh-context code review (high effort, 8-angle) found and fixed real
+     bugs, largely converged on independently by 3-4 of the 8 angles: (1)
+     `RESPONSE_START`'s turn-0 exception was too broad — it accepted a stray
+     greeting-shaped response at *any* turn, and (2) the client sent the
+     greeting `response.create` on every reconnect, not just the first
+     connect — combined, a mid-session reconnect after a dropped connection
+     injected a spurious duplicate tutor turn into the transcript (fixed:
+     reducer now gates on `turn === 0` explicitly; client only greets on
+     `isFirstConnection`). Also fixed: `CONNECTION_DROPPED` never actually
+     closed the peer connection/mic (leaked an open mic until manual
+     reconnect); the push-to-talk button had no pointer capture, so
+     dragging off it mid-hold left `MIC_UP` never firing (stuck recording
+     forever) — added `setPointerCapture` + an `onPointerCancel` fallback;
+     `micDown`/`micUp` touched the raw mic track / sent data-channel
+     messages even when the corresponding reducer transition would be
+     illegal — now pre-checked via `reduce()` itself before any side
+     effect; `beginConnection` had no guard against overlapping calls
+     (double-click/rapid reconnect) or component-unmount mid-connect, both
+     of which could leak a live `RTCPeerConnection` + open mic — fixed via
+     an identity-check-against-`pcRef` pattern plus an `isMountedRef`.
+     Also deduped: `fetchSessionContext` had copy-pasted `fetch-dashboard-
+     data.ts`'s error-logging loop and its own `"A1"` default level literal
+     (both now shared: `lib/supabase/log-query-errors.ts`, `lib/level.ts`);
+     the OpenAI SDK client was rebuilt from scratch per request (now a
+     module-level singleton); `SET_CORRECTION_MODE` was being dispatched
+     into the reducer on every `beginConnection` call including reconnects,
+     wiring "live" a lock/recap mechanism issue #3 explicitly doesn't need
+     yet — `correctionMode` now just travels as plain session metadata
+     (`sessionMetaRef`), set once, not routed through the reducer.
+     `npm test` (91/91), lint, build all clean; re-verified live in the
+     browser after every fix.
+   - Also added: `vitest.config.ts` (a bare `@/*` path alias matching
+     `tsconfig.json` — needed once route-handler tests started importing
+     `@/lib/...`; vitest had no alias resolution configured before this).
+   - **Not yet done**: `OPENAI_API_KEY` in Vercel, committing/pushing,
+     redeploying to production.
 
 ## Not started yet
 
-- Closing issue #2 on the tracker.
-- Realtime API session-orchestration route (spec §1, §3) — issue #3.
-- Core UI (start practice / push-to-talk mic / end session / recap) — issue #3.
+- Setting `OPENAI_API_KEY` in Vercel (Production + Preview) and deploying
+  issue #3's changes — implemented and verified locally/live against real
+  Supabase + OpenAI, but not yet live in production.
 - Post-session summarization + recap + progress updates — issue #4.
-- Correction modes (inline vs. summary) — issue #5.
-- Error handling wiring (reconnect UX, beforeunload sweep, pending_summary
-  retry, daily session cap) — spec §4, issue #6.
+- Correction modes (inline vs. summary) — issue #5. Groundwork already in
+  place from issue #3 (`session-machine.ts`'s `recap()`/mode-lock,
+  `sessions.correction_mode_used`) but nothing in the model's system prompt
+  or the event mapper acts on it yet — `isCorrection` is never set by real
+  server events today, so `recap()` is unreachable until #5.
+- Error handling wiring (reconnect UX beyond basic drop/reconnect,
+  beforeunload sweep, pending_summary retry, daily session cap) — spec §4,
+  issue #6.
 
 ## Environment quirks (read before running anything)
 
@@ -197,6 +289,25 @@ setup quirks*, not design decisions.
   production URL instead of leaving it at the localhost default. If any
   future change alters the callback URL's query string shape again,
   re-check this.
+- **Vitest had no `@/*` path alias** even though `tsconfig.json` and every
+  `app/`/`lib/` file use it — nothing exercised it in a vitest-run file
+  until issue #3's route-handler tests. Fixed once, in `vitest.config.ts`
+  (mirrors `tsconfig.json`'s `paths`). No longer an open item, but if a new
+  test file mysteriously can't resolve an `@/...` import, this is why it
+  used to fail before this file existed.
+- **OpenAI Realtime API docs (platform.openai.com/docs/guides/realtime,
+  developers.openai.com/api/docs/...) return incomplete/truncated content
+  via WebFetch** — the JSON schema tables don't come through. The
+  `openai` npm package's shipped `.d.ts` files
+  (`node_modules/openai/resources/realtime/{client-secrets,realtime}.d.ts`)
+  are the reliable source for exact request/response shapes and were used
+  instead for issue #3: ephemeral tokens come from
+  `client.realtime.clientSecrets.create({ session: {...} })` (not the
+  older two-step `/v1/realtime/sessions` flow); the session config nests
+  under `session.audio.{input,output}`; `session.audio.input.turn_detection:
+  null` is how push-to-talk disables server VAD; server event type strings
+  confirmed from the types: `response.output_audio_transcript.delta`,
+  `response.done`, `conversation.item.input_audio_transcription.completed`.
 
 ## Next steps
 
@@ -204,8 +315,8 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 `to-issues`), chained with native blocking dependencies in order:
 
 1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — **closed**. Blocked by: none.
-2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — `ready-for-agent`, **implementation + review done, not yet closed** (see "Done so far" #6). Blocked by #1
-3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — `needs-triage`. Blocked by #2. Folds the now-trusted `machine.ts` into the real app.
+2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — **closed**. Blocked by #1
+3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — **closed**. Blocked by #2
 4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — `needs-triage`. Blocked by #3
 5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — `needs-triage`. Blocked by #4
 6. [#6 Error handling & reliability](https://github.com/Guri10/ai-english-tutor/issues/6) — `needs-triage`. Blocked by #5
@@ -213,7 +324,7 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: close issue #2 (implemented, fresh-context-reviewed,
-fixes applied and migrated to the live database — see "Done so far" #6).
-Then triage #3 from `needs-triage` to `ready-for-agent` and repeat the
-implement → review → close cycle.
+Immediate next step: commit/push issue #3's work, set `OPENAI_API_KEY` in
+Vercel, and redeploy — none of that has happened yet this session (see
+"Done so far" #7). Then triage #4 from `needs-triage` to `ready-for-agent`
+and repeat the implement → review → close cycle.

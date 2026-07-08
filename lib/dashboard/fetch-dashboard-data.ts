@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { shapeDashboardData, type DashboardData } from "./shape-dashboard-data";
+import { logQueryErrors } from "@/lib/supabase/log-query-errors";
 
 const RECENT_LEVEL_HISTORY_LIMIT = 5;
 
@@ -27,15 +28,11 @@ export async function fetchDashboardData(
         .limit(RECENT_LEVEL_HISTORY_LIMIT),
     ]);
 
-  for (const result of [
+  logQueryErrors("fetchDashboardData", [
     studentStateResult,
     recurringMistakesResult,
     levelHistoryResult,
-  ]) {
-    if (result.error) {
-      console.error("fetchDashboardData: query failed", result.error);
-    }
-  }
+  ]);
 
   return shapeDashboardData(
     studentStateResult.data,

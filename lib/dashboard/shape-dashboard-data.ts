@@ -1,3 +1,5 @@
+import { DEFAULT_LEVEL_SCORE } from "@/lib/level";
+
 export type DashboardData = {
   levelScore: string;
   streakCount: number;
@@ -35,8 +37,6 @@ export type LevelHistoryRow = {
   level_score: string;
   recorded_at: string;
 };
-
-const DEFAULT_LEVEL_SCORE = "A1";
 
 export function shapeDashboardData(
   studentState: StudentStateRow,

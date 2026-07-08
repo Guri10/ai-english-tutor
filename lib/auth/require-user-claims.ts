@@ -1,12 +1,13 @@
 import { redirect } from "next/navigation";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { getUserClaims } from "./get-user-claims";
 
 export async function requireUserClaims(supabase: SupabaseClient) {
-  const { data } = await supabase.auth.getClaims();
+  const claims = await getUserClaims(supabase);
 
-  if (!data?.claims) {
+  if (!claims) {
     redirect("/sign-in");
   }
 
-  return data.claims;
+  return claims;
 }
