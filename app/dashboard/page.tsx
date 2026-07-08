@@ -1,16 +1,11 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserClaims } from "@/lib/auth/require-user-claims";
 import { fetchDashboardData } from "@/lib/dashboard/fetch-dashboard-data";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-
-  if (!data?.claims) {
-    redirect("/sign-in");
-  }
-
-  const userId = data.claims.sub as string;
+  const claims = await requireUserClaims(supabase);
+  const userId = claims.sub as string;
   const dashboard = await fetchDashboardData(supabase, userId);
 
   return (
@@ -43,6 +38,30 @@ export default async function DashboardPage() {
                 </span>
                 <span className="text-zinc-600 dark:text-zinc-400">
                   {mistake.occurrenceCount}×
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="w-full max-w-2xl">
+        <h2 className="mb-3 text-lg font-medium">Recent progress</h2>
+        {dashboard.recentLevelHistory.length === 0 ? (
+          <p className="text-zinc-600 dark:text-zinc-400">
+            No completed sessions yet — your level over time will show up
+            here.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {dashboard.recentLevelHistory.map((entry) => (
+              <li
+                key={entry.recordedAt}
+                className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
+              >
+                <span className="font-medium">{entry.levelScore}</span>
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {new Date(entry.recordedAt).toLocaleDateString()}
                 </span>
               </li>
             ))}

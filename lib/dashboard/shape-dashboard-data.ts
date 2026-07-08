@@ -4,12 +4,18 @@ export type DashboardData = {
   longestStreak: number;
   totalSessions: number;
   recurringMistakes: RecurringMistake[];
+  recentLevelHistory: LevelHistoryEntry[];
 };
 
 export type RecurringMistake = {
   mistakeType: string;
   occurrenceCount: number;
   lastExample: string | null;
+};
+
+export type LevelHistoryEntry = {
+  levelScore: string;
+  recordedAt: string;
 };
 
 export type StudentStateRow = {
@@ -25,11 +31,17 @@ export type RecurringMistakeRow = {
   last_example: string | null;
 };
 
+export type LevelHistoryRow = {
+  level_score: string;
+  recorded_at: string;
+};
+
 const DEFAULT_LEVEL_SCORE = "A1";
 
 export function shapeDashboardData(
   studentState: StudentStateRow,
-  recurringMistakes: RecurringMistakeRow[]
+  recurringMistakes: RecurringMistakeRow[],
+  levelHistory: LevelHistoryRow[]
 ): DashboardData {
   return {
     levelScore: studentState?.level_score ?? DEFAULT_LEVEL_SCORE,
@@ -40,6 +52,10 @@ export function shapeDashboardData(
       mistakeType: row.mistake_type,
       occurrenceCount: row.occurrence_count,
       lastExample: row.last_example,
+    })),
+    recentLevelHistory: levelHistory.map((row) => ({
+      levelScore: row.level_score,
+      recordedAt: row.recorded_at,
     })),
   };
 }

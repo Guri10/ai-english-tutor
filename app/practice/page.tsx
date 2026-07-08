@@ -1,17 +1,12 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { requireUserClaims } from "@/lib/auth/require-user-claims";
 import { signOut } from "./actions";
 
 export default async function PracticePage() {
   const supabase = await createClient();
-  const { data } = await supabase.auth.getClaims();
-
-  if (!data?.claims) {
-    redirect("/sign-in");
-  }
-
-  const email = data.claims.email as string | undefined;
+  const claims = await requireUserClaims(supabase);
+  const email = claims.email as string | undefined;
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">

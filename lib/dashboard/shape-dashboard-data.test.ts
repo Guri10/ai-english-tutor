@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { shapeDashboardData } from "./shape-dashboard-data";
 
 describe("shapeDashboardData", () => {
-  test("shapes a populated student_state row and recurring mistakes", () => {
+  test("shapes a populated student_state row, recurring mistakes, and level history", () => {
     const result = shapeDashboardData(
       {
         level_score: "B1",
@@ -17,6 +17,10 @@ describe("shapeDashboardData", () => {
           last_example: "I saw a elephant.",
         },
         { mistake_type: "past_tense", occurrence_count: 2, last_example: null },
+      ],
+      [
+        { level_score: "B1", recorded_at: "2026-07-05T00:00:00Z" },
+        { level_score: "A2", recorded_at: "2026-06-20T00:00:00Z" },
       ]
     );
 
@@ -33,11 +37,15 @@ describe("shapeDashboardData", () => {
         },
         { mistakeType: "past_tense", occurrenceCount: 2, lastExample: null },
       ],
+      recentLevelHistory: [
+        { levelScore: "B1", recordedAt: "2026-07-05T00:00:00Z" },
+        { levelScore: "A2", recordedAt: "2026-06-20T00:00:00Z" },
+      ],
     });
   });
 
-  test("falls back to a zero/empty state when no student_state row exists yet", () => {
-    const result = shapeDashboardData(null, []);
+  test("falls back to a zero/empty state when no rows exist yet", () => {
+    const result = shapeDashboardData(null, [], []);
 
     expect(result).toEqual({
       levelScore: "A1",
@@ -45,10 +53,11 @@ describe("shapeDashboardData", () => {
       longestStreak: 0,
       totalSessions: 0,
       recurringMistakes: [],
+      recentLevelHistory: [],
     });
   });
 
-  test("falls back to zero counts even when a student_state row exists with no mistakes yet", () => {
+  test("falls back to zero counts even when a student_state row exists with no mistakes or history yet", () => {
     const result = shapeDashboardData(
       {
         level_score: "A2",
@@ -56,10 +65,12 @@ describe("shapeDashboardData", () => {
         longest_streak: 1,
         total_sessions: 1,
       },
+      [],
       []
     );
 
     expect(result.recurringMistakes).toEqual([]);
+    expect(result.recentLevelHistory).toEqual([]);
     expect(result.levelScore).toBe("A2");
   });
 });

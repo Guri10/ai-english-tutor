@@ -102,10 +102,45 @@ setup quirks*, not design decisions.
      quirks): the review's `?next=` addition to the callback URL broke
      Supabase's Redirect URLs match, silently falling back to Site URL —
      fixed in the Supabase dashboard, confirmed resolved by the user.
+6. **Issue #2 (schema + student dashboard read path) — implemented,
+   reviewed, applied to the live database.**
+   - Migration `supabase/migrations/20260707235642_core_schema.sql`: the 6
+     app-owned tables from spec §2, RLS enabled and scoped to `auth.uid()`
+     ownership on all of them (`session_transcripts` via its owning
+     session's `user_id`). Applied via the Supabase CLI (`supabase link` +
+     `supabase db push --linked`) — no CLI login was set up before this
+     issue; the user installed it and ran `supabase login` interactively.
+   - Dashboard at `/dashboard`, added to `lib/auth/route-guard.ts`'s
+     `PROTECTED_PREFIXES`. Reads `student_state`, `recurring_mistakes`,
+     and `level_history` (all three, per spec §2 — the first pass missed
+     `level_history` and the review caught it) via a TDD'd pure
+     shape/fetch split (`lib/dashboard/`), zero/empty state for a
+     brand-new user. Linked from `/practice`.
+   - Fresh-context code review (high effort, 8-angle, two agents needed a
+     retry after an unrelated platform session-limit error) found 9
+     issues, all fixed: Supabase query errors were silently swallowed
+     (now logged); the dashboard didn't read `level_history` despite the
+     issue's own brief calling for it (now does); `getClaims()`-and-
+     redirect was duplicated verbatim across `/practice` and `/dashboard`
+     (extracted to `lib/auth/require-user-claims.ts`); the CEFR level set
+     was hand-duplicated as inline CHECK constraints in 4 places (now one
+     shared `cefr_level` Postgres enum); no non-negative guards on
+     `student_state`'s counters or `recurring_mistakes.occurrence_count`
+     (added); `recurring_mistakes` had no index matching its actual query
+     pattern (added); `session_transcripts`' 3 RLS policies duplicated
+     the same correlated subquery (extracted to a shared
+     `session_owner()` SQL function, `security invoker` — verified
+     equivalent access, not a privilege change); the absent DELETE
+     policies were undocumented (now a comment explaining it's
+     intentional — no delete feature exists yet). A second migration
+     (`20260708041341_tighten_core_schema.sql`) carries the schema-level
+     fixes; verified clean against both security and performance
+     advisors both times. `npm test` (38/38), lint, build all clean.
+   - **Not yet done**: closing issue #2 on the tracker.
 
 ## Not started yet
 
-- Supabase schema (the 6 tables in spec §2) — issue #2.
+- Closing issue #2 on the tracker.
 - Realtime API session-orchestration route (spec §1, §3) — issue #3.
 - Core UI (start practice / push-to-talk mic / end session / recap) — issue #3.
 - Post-session summarization + recap + progress updates — issue #4.
@@ -168,8 +203,8 @@ setup quirks*, not design decisions.
 The design spec has been broken into 6 vertical-slice GitHub issues (via
 `to-issues`), chained with native blocking dependencies in order:
 
-1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — `ready-for-agent`, **implementation + review done, not yet closed** (see "Done so far" #5). Blocked by: none.
-2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — `needs-triage`. Blocked by #1
+1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — **closed**. Blocked by: none.
+2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — `ready-for-agent`, **implementation + review done, not yet closed** (see "Done so far" #6). Blocked by #1
 3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — `needs-triage`. Blocked by #2. Folds the now-trusted `machine.ts` into the real app.
 4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — `needs-triage`. Blocked by #3
 5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — `needs-triage`. Blocked by #4
@@ -178,7 +213,7 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: close issue #1 (implemented, fresh-context-reviewed,
-fixes applied and deployed — see "Done so far" #5). Then triage #2 from
-`needs-triage` to `ready-for-agent` and repeat the implement → review →
-close cycle.
+Immediate next step: close issue #2 (implemented, fresh-context-reviewed,
+fixes applied and migrated to the live database — see "Done so far" #6).
+Then triage #3 from `needs-triage` to `ready-for-agent` and repeat the
+implement → review → close cycle.
