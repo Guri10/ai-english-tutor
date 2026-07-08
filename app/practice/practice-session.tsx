@@ -58,6 +58,7 @@ export function PracticeSession() {
     localStreamRef.current = null;
     if (audioElRef.current) {
       audioElRef.current.srcObject = null;
+      audioElRef.current.remove();
       audioElRef.current = null;
     }
   }, []);
@@ -102,9 +103,23 @@ export function PracticeSession() {
 
       const audioEl = new Audio();
       audioEl.autoplay = true;
+      // Detached, unattached <audio> elements are unreliable for autoplay
+      // across browsers (notably Safari, this app's primary target per the
+      // design spec) — attach it (hidden) so playback actually starts.
+      audioEl.style.display = "none";
+      document.body.appendChild(audioEl);
       pc.ontrack = (event) => {
-        if (pcRef.current !== thisConnection) return;
+        // ontrack can fire as soon as the remote SDP answer is applied —
+        // i.e. before pcRef.current is published below — so staleness is
+        // checked against the connection's own state (closed only happens
+        // via cleanupConnection tearing down a superseded attempt), not
+        // against pcRef.current, which would incorrectly treat this attempt
+        // as stale before it's had a chance to publish itself.
+        if (thisConnection.connectionState === "closed") return;
         audioEl.srcObject = event.streams[0];
+        audioEl.play().catch((err) => {
+          console.error("practice session: audio playback failed", err);
+        });
       };
 
       pc.onconnectionstatechange = () => {
