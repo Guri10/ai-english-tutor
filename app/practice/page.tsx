@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "./actions";
@@ -15,6 +16,9 @@ export default async function PracticePage() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
       <p>Signed in as {email}</p>
+      <Link href="/dashboard" className="underline">
+        View your progress
+      </Link>
       <form action={signOut}>
         <button
           type="submit"

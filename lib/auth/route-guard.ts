@@ -1,5 +1,9 @@
+const PROTECTED_PREFIXES = ["/practice", "/dashboard"];
+
 export function isProtectedPath(pathname: string): boolean {
-  return pathname === "/practice" || pathname.startsWith("/practice/");
+  return PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
 }
 
 export function resolveProtectedRouteRedirect(

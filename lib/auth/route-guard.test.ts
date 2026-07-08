@@ -30,6 +30,14 @@ describe("isProtectedPath", () => {
   test("a route merely prefixed with 'practice' is not protected", () => {
     expect(isProtectedPath("/practice-notes")).toBe(false);
   });
+
+  test("the dashboard route is protected", () => {
+    expect(isProtectedPath("/dashboard")).toBe(true);
+  });
+
+  test("a route merely prefixed with 'dashboard' is not protected", () => {
+    expect(isProtectedPath("/dashboard-notes")).toBe(false);
+  });
 });
 
 describe("resolveProtectedRouteRedirect", () => {
