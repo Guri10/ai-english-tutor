@@ -224,6 +224,56 @@ setup quirks*, not design decisions.
      `@/lib/...`; vitest had no alias resolution configured before this).
    - **Not yet done**: `OPENAI_API_KEY` in Vercel, committing/pushing,
      redeploying to production.
+8. **Magic-link auth replaced with Google OAuth — implemented, reviewed,
+   deployed, verified live. Supersedes issue #1's magic-link auth** (see
+   `docs/superpowers/specs/2026-07-08-google-oauth-auth-design.md`, which
+   is now the source of truth for the auth method — the original design
+   spec's "magic-link" line is out of date).
+   - **Why**: Supabase's built-in email service hard-caps auth emails at
+     2/hour with no way to raise it short of custom SMTP — this was
+     blocking manual testing and would have throttled real friends/family
+     users signing in around the same time in production.
+   - `app/sign-in/actions.ts` (`requestMagicLink`, `MagicLinkState`)
+     deleted. `app/sign-in/sign-in-form.tsx` is now a client component
+     that calls `supabase.auth.signInWithOAuth({ provider: "google" })`
+     directly, building the callback redirect URL from
+     `window.location.origin` at click time (via the existing
+     `buildAuthCallbackUrl`) instead of a fixed env var.
+     `app/auth/callback/route.ts` needed no changes — its
+     `exchangeCodeForSession` logic was already provider-agnostic.
+   - **This also fixed a real bug**: the old fixed-`NEXT_PUBLIC_SITE_URL`
+     approach meant a sign-in started from one Vercel domain (e.g. the
+     project's auto-generated default domain) redirected to a different
+     domain (the `beta` custom alias), where the PKCE code-verifier
+     cookie — scoped to the originating domain — didn't exist, breaking
+     `exchangeCodeForSession` (`?error=auth-callback-failed`). Deriving
+     the redirect from `window.location.origin` means the user always
+     lands back on the domain they started from.
+   - `NEXT_PUBLIC_SITE_URL` is fully removed — deleted from `.env.local`,
+     `.env.example`, and Vercel (Production + Preview). No longer set,
+     unlike what an earlier entry in this log (issue #1, above) says was
+     configured at the time — that was correct when written, this
+     supersedes it.
+   - **External/manual setup done in Google Cloud Console + Supabase
+     Dashboard** (not in this repo): Google OAuth Client ID/Secret
+     created, Google provider enabled in Supabase (Sign In / Providers),
+     Redirect URLs allowlist extended to cover the Vercel default project
+     domain in addition to `localhost` and the `beta` domain (all with the
+     `/auth/callback**` wildcard suffix — see the existing Environment
+     quirks entry below on why the wildcard matters).
+   - Fresh code review (per-task + final whole-branch, subagent-driven)
+     found one real edge case: `signInWithOAuth` was only handled for its
+     returned-error case, not a thrown/rejected promise (e.g. a network
+     failure), which would've left the sign-in button stuck on
+     "Redirecting…" forever with no error shown — fixed with a
+     `try/catch`. Also fixed a stale doc comment in
+     `lib/auth/route-guard.ts` still referencing "magic-link click".
+     `npm test` (91/91), lint, and build all clean.
+   - **Manually verified live** by the user across both production
+     domains (`ai-english-tutor-beta.vercel.app` and the Vercel default
+     `ai-english-tutor-atharvas-projects-9b6f5898.vercel.app` domain,
+     confirming the cross-domain fix), plus the `redirectTo` round-trip
+     through a real protected route (`/dashboard`) while signed out.
 
 ## Not started yet
 
