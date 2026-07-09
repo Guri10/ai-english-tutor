@@ -1,45 +1,47 @@
 "use client";
 
-import { useActionState } from "react";
-import { requestMagicLink, type MagicLinkState } from "./actions";
-
-const initialState: MagicLinkState = { status: "idle" };
+import { useState } from "react";
+import { createClient } from "@/lib/supabase/client";
+import { buildAuthCallbackUrl } from "@/lib/auth/route-guard";
 
 export function SignInForm({ redirectTo }: { redirectTo?: string }) {
-  const [state, formAction, pending] = useActionState(
-    requestMagicLink,
-    initialState
-  );
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  if (state.status === "sent") {
-    return <p role="status">Check your email for a sign-in link.</p>;
+  async function handleSignIn() {
+    setPending(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: oauthError } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: buildAuthCallbackUrl(
+          window.location.origin,
+          redirectTo ?? null
+        ),
+      },
+    });
+    if (oauthError) {
+      setError(oauthError.message);
+      setPending(false);
+    }
   }
 
   return (
-    <form action={formAction} className="flex w-full max-w-sm flex-col gap-4">
-      {redirectTo && (
-        <input type="hidden" name="redirectTo" value={redirectTo} />
-      )}
-      <input
-        type="email"
-        name="email"
-        required
-        placeholder="you@example.com"
-        autoComplete="email"
-        className="rounded-full border border-black/[.08] px-5 py-3 dark:border-white/[.145]"
-      />
+    <div className="flex w-full max-w-sm flex-col gap-4">
       <button
-        type="submit"
+        type="button"
+        onClick={handleSignIn}
         disabled={pending}
         className="rounded-full bg-foreground px-6 py-3 text-background transition-colors hover:bg-[#383838] disabled:opacity-50 dark:hover:bg-[#ccc]"
       >
-        {pending ? "Sending…" : "Send magic link"}
+        {pending ? "Redirecting…" : "Sign in with Google"}
       </button>
-      {state.status === "error" && (
+      {error && (
         <p role="alert" className="text-red-600">
-          {state.message}
+          {error}
         </p>
       )}
-    </form>
+    </div>
   );
 }
