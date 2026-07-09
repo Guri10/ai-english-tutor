@@ -274,13 +274,76 @@ setup quirks*, not design decisions.
      `ai-english-tutor-atharvas-projects-9b6f5898.vercel.app` domain,
      confirming the cross-domain fix), plus the `redirectTo` round-trip
      through a real protected route (`/dashboard`) while signed out.
+   - `OPENAI_API_KEY` has since been set in Vercel (Production + Preview) —
+     confirmed via `vercel env ls`. Issue #3's changes are live in production.
+9. **Issue #4 (post-session summarization + recap + progress updates) —
+   implemented, reviewed, manually verified live, closed.**
+   - `lib/summarization/`: `session-summary-schema.ts` (zod schema —
+     `levelScore` CEFR enum, `topicsCovered`, `mistakes[]` of
+     type/example/correction), `build-summarization-prompt.ts` (TDD'd, pure),
+     `summarize-session.ts` (thin `openai.chat.completions.parse` +
+     `zodResponseFormat` wrapper — the mocked network boundary in tests),
+     `apply-summary.ts` (TDD'd, pure — the one function that turns a
+     `SessionSummary` + current `student_state` snapshot into the exact
+     `sessions`/`level_history`/`recurring_mistakes`/`student_state` row
+     updates, including the daily-streak rule: same UTC calendar day as
+     `last_session_at` leaves `streak_count` unchanged, exactly one day
+     later increments it, any bigger gap or a first-ever session resets it
+     to 1 — chosen over a plain per-session counter after asking the user).
+   - `zod` promoted from a transitive (`openai`) dependency to a direct one.
+   - `app/practice/actions.ts`'s `endPracticeSession` now, after persisting
+     the session + transcript as before: runs `summarizeSession()` (skipped
+     entirely for a zero-exchange transcript, which instead flows through
+     `applySummary` as a trivial no-op summary so it still counts toward
+     `total_sessions`/streak), reads current `student_state` +
+     `recurring_mistakes` in parallel with that OpenAI call, computes the
+     updates via `applySummary`, and writes all four tables in one
+     `Promise.all` (a single batched `recurring_mistakes` upsert, not one
+     per mistake type). Returns a recap payload (`status: "completed"` with
+     level/streak/mistakes, or `"pending_summary"`) instead of the old bare
+     `{ok:true}`.
+   - `app/practice/practice-session.tsx`'s "ended" screen now renders that
+     recap (level-before → level-after, streak, mistakes list) via a new
+     `Recap` component, replacing the old flat "Session saved." message.
+     Since `correction_mode` isn't wired into model behavior yet (issue #5),
+     the recap unconditionally shows mistakes — this slice's recap *is* the
+     eventual "summary mode" recap.
+   - **Manually verified live** (Playwright, real Google OAuth + real
+     OpenAI Realtime voice session + real OpenAI summarization call, not
+     mocked): full golden path twice (before and after the review's fixes)
+     — start practice, one push-to-talk turn, end session, recap renders
+     the correct level/streak/mistakes, no console or server errors.
+   - Fresh-context code review (high effort, 8 finder angles) converged
+     independently (5-6 of 8 angles) on one serious bug cluster, now fixed:
+     `endPracticeSession` treated a `student_state`/`recurring_mistakes`
+     **read error** the same as "no row yet" and would have silently reset
+     an existing user's real progress to brand-new-user defaults before
+     upserting over their actual row; separately, **write failures** across
+     the four tables were only logged, never checked, so the function
+     always returned `status: "completed"` with the freshly *computed*
+     level/streak even if nothing had actually persisted, showing the
+     student a recap that lied about what was saved. Both now abort to the
+     same `pending_summary` "still processing" response the UI already
+     handled, rather than risk corrupting or misreporting state. Also
+     fixed: the empty-transcript fast path force-cast the client-supplied
+     `levelBefore` straight into `student_state.level_score` with no
+     validation (now falls back to `DEFAULT_LEVEL_SCORE` if it isn't a real
+     CEFR code); N+1 `recurring_mistakes` upserts (now one batched call);
+     the `student_state`/`recurring_mistakes` reads were needlessly
+     serialized after the multi-second OpenAI call instead of running
+     concurrently with it (now parallelized). `npm test` (117/117), lint,
+     and build all clean; re-verified live after the fixes.
+   - **Known, deliberately deferred limitation**: `endPracticeSession` does
+     a non-transactional read-modify-write of `student_state` with no
+     locking — two concurrent session-ends for the same user (double tab,
+     retried request) can race and lose one session's worth of progress.
+     Fixing this properly needs a DB-side atomic operation (a Postgres
+     RPC/stored procedure), which is a bigger architectural change than
+     this slice's scope — worth picking up alongside issue #6's background
+     `pending_summary` retry job, which will need the same atomic update.
 
 ## Not started yet
 
-- Setting `OPENAI_API_KEY` in Vercel (Production + Preview) and deploying
-  issue #3's changes — implemented and verified locally/live against real
-  Supabase + OpenAI, but not yet live in production.
-- Post-session summarization + recap + progress updates — issue #4.
 - Correction modes (inline vs. summary) — issue #5. Groundwork already in
   place from issue #3 (`session-machine.ts`'s `recap()`/mode-lock,
   `sessions.correction_mode_used`) but nothing in the model's system prompt
@@ -367,14 +430,16 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 1. [#1 App scaffold + Supabase magic-link auth](https://github.com/Guri10/ai-english-tutor/issues/1) — **closed**. Blocked by: none.
 2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — **closed**. Blocked by #1
 3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — **closed**. Blocked by #2
-4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — `needs-triage`. Blocked by #3
+4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — **closed**. Blocked by #3
 5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — `needs-triage`. Blocked by #4
 6. [#6 Error handling & reliability](https://github.com/Guri10/ai-english-tutor/issues/6) — `needs-triage`. Blocked by #5
 
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: commit/push issue #3's work, set `OPENAI_API_KEY` in
-Vercel, and redeploy — none of that has happened yet this session (see
-"Done so far" #7). Then triage #4 from `needs-triage` to `ready-for-agent`
-and repeat the implement → review → close cycle.
+Immediate next step: commit/push issue #4's work, then triage #5 from
+`needs-triage` to `ready-for-agent` and repeat the implement → review →
+close cycle. Note for #5's triage: it needs an actual design decision on
+how `correction_mode` reaches the model's behavior (system prompt wording?
+a tool-call hook?) — issue #3 only plumbed the field through as inert
+metadata.

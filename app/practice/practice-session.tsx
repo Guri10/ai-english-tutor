@@ -14,7 +14,7 @@ import {
   type CorrectionMode,
 } from "@/lib/realtime/session-machine";
 import { mapServerEventToAction } from "@/lib/realtime/map-server-event";
-import { endPracticeSession } from "./actions";
+import { endPracticeSession, type EndPracticeSessionResult } from "./actions";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
@@ -25,7 +25,11 @@ type TokenResponse = {
   correctionMode: CorrectionMode;
 };
 
-type SaveStatus = null | "saving" | "saved" | "error";
+type SaveState =
+  | { phase: "idle" }
+  | { phase: "saving" }
+  | { phase: "error" }
+  | { phase: "saved"; result: Extract<EndPracticeSessionResult, { ok: true }> };
 
 type SessionMeta = {
   startedAt: string;
@@ -47,7 +51,7 @@ export function PracticeSession() {
   const itemTurnMapRef = useRef(new Map<string, number>());
   const sessionMetaRef = useRef<SessionMeta | null>(null);
   const isMountedRef = useRef(true);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>(null);
+  const [saveState, setSaveState] = useState<SaveState>({ phase: "idle" });
 
   const cleanupConnection = useCallback(() => {
     dcRef.current?.close();
@@ -257,7 +261,7 @@ export function PracticeSession() {
 
     if (!meta) return; // never actually connected — nothing to save
 
-    setSaveStatus("saving");
+    setSaveState({ phase: "saving" });
     const result = await endPracticeSession({
       transcript,
       startedAt: meta.startedAt,
@@ -265,7 +269,7 @@ export function PracticeSession() {
       levelBefore: meta.levelBefore,
       correctionMode: meta.correctionMode,
     });
-    setSaveStatus(result.ok ? "saved" : "error");
+    setSaveState(result.ok ? { phase: "saved", result } : { phase: "error" });
   }, [cleanupConnection]);
 
   const canEndSession = state.phase !== "idle" && state.phase !== "ended";
@@ -341,18 +345,56 @@ export function PracticeSession() {
       )}
 
       {state.phase === "ended" && (
-        <div className="flex flex-col items-center gap-2 text-center">
-          {saveStatus === "saving" && <p>Saving your session…</p>}
-          {saveStatus === "saved" && <p>Session saved.</p>}
-          {saveStatus === "error" && (
+        <div className="flex w-full flex-col items-center gap-4 text-center">
+          {saveState.phase === "saving" && <p>Saving your session…</p>}
+          {saveState.phase === "error" && (
             <p className="text-red-600 dark:text-red-400">
               Couldn&apos;t save your session — please try again later.
             </p>
           )}
+          {saveState.phase === "saved" && <Recap result={saveState.result} />}
           <a href="/practice" className="underline">
             Start a new session
           </a>
         </div>
+      )}
+    </div>
+  );
+}
+
+function Recap({
+  result,
+}: {
+  result: Extract<EndPracticeSessionResult, { ok: true }>;
+}) {
+  if (result.status === "pending_summary") {
+    return <p>Session saved — still processing your results…</p>;
+  }
+
+  return (
+    <div className="flex w-full flex-col items-center gap-4">
+      <p>
+        Level: {result.levelBefore}
+        {result.levelBefore !== result.levelAfter && ` → ${result.levelAfter}`}
+      </p>
+      <p>
+        Streak: {result.streakCount} day{result.streakCount === 1 ? "" : "s"}
+      </p>
+      {result.mistakes.length > 0 ? (
+        <ul className="flex w-full flex-col gap-2 text-left text-sm">
+          {result.mistakes.map((mistake, index) => (
+            <li
+              key={index}
+              className="rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
+            >
+              <p className="font-medium">{mistake.type}</p>
+              <p>You said: &ldquo;{mistake.example}&rdquo;</p>
+              <p>Correction: {mistake.correction}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No mistakes flagged this session — nice work!</p>
       )}
     </div>
   );
