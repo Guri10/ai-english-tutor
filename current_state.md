@@ -342,13 +342,83 @@ setup quirks*, not design decisions.
      this slice's scope — worth picking up alongside issue #6's background
      `pending_summary` retry job, which will need the same atomic update.
 
+9. **Issue #5 (correction modes: inline vs. summary) — implemented, reviewed,
+   manually verified live, closed.**
+   - **Key design decision (asked the user)**: how does the app know a
+     tutor's spoken reply included a live correction? Chose "the model
+     calls a tool" over "just hide the mistake list in inline mode" — the
+     Realtime API supports function/tool calls alongside spoken audio in
+     the same turn, giving exact detection plus structured mistake data,
+     at the cost of new integration surface.
+   - `lib/realtime/session-machine.ts`: new `FLAG_CORRECTION_TOOL_NAME`
+     constant (shared by the route, prompt, and event mapper — closes a
+     3-way string-literal duplication a review angle flagged), new
+     `CORRECTION_FLAGGED` action (phase-gated like its `RESPONSE_TEXT_CHUNK`
+     sibling, tags the current turn's tutor entry `isCorrection: true`),
+     new `isCorrectionMode()` type guard. Removed `pendingMistakes`/
+     `MistakeNote`/`recap()` — prototype-era concepts that assumed the recap
+     would be computed client-side; the real recap is server-computed
+     (issue #4), so these were dead code, not wired up.
+   - `lib/realtime/build-system-prompt.ts`: `correctionMode` is now a
+     required input — inline mode instructs the model to correct briefly
+     in-voice and silently call the tool; summary mode instructs it to
+     never correct mid-conversation.
+   - `app/api/realtime-session/route.ts`: reads an optional `correctionMode`
+     override from the POST body (validated, falls back to the profile
+     default), registers the `flag_correction` function tool on the
+     Realtime session only for inline mode.
+   - `app/practice/page.tsx` / `practice-session.tsx`: a pre-session toggle
+     (locks once the first turn happens, reusing `session-machine.ts`'s
+     already-validated lock instead of reinventing it) seeds the reducer
+     and is sent as the override; a `flag_correction` tool-call event sends
+     a `function_call_output` back over the data channel (guarded on
+     `call_id` actually being a string) so the call doesn't dangle
+     unanswered, without triggering an extra spoken turn.
+   - `app/practice/actions.ts`: `endPracticeSession` now returns a
+     `correctedLiveCount` (count of `isCorrection`-tagged transcript
+     entries) alongside `mistakes: []` for inline mode — the recap
+     distinguishes "corrected N things live" from genuinely "no mistakes,"
+     rather than blanket-hiding both identically (a review angle caught
+     that the first cut of this made every inline session look
+     mistake-free regardless of what actually happened). `recurring_
+     mistakes`/`level_history`/`student_state` writes are unaffected by
+     correction mode either way.
+   - New `lib/realtime/fetch-default-correction-mode.ts` (TDD'd), extracted
+     out of `fetch-session-context.ts` and reused by both — `page.tsx` was
+     running the full 3-query `fetchSessionContext` just to read one field
+     for the toggle's default until a review angle caught it.
+   - **Manually verified live** (Playwright, real Google OAuth + real
+     OpenAI Realtime, not mocked): both modes end-to-end — toggle switches
+     correctly, the resolved mode round-trips through `/api/realtime-session`,
+     the `flag_correction` tool registers successfully with the real API
+     for inline mode (no mint failure) and is absent for summary mode, both
+     recaps render with no console/server errors. Actually triggering a
+     real `flag_correction` call couldn't be forced live (fake test-audio
+     mic produces no real mistakes to correct) — same limitation issue #3
+     hit; the mechanism itself is unit-tested (reducer, event mapper,
+     route) rather than exercised end-to-end with real speech.
+   - Fresh-context code review (high effort, 8 finder angles) found and
+     fixed: `call_id` sent back unvalidated when acking a tool call (now
+     guarded); `CORRECTION_FLAGGED` was the only transcript-mutating
+     reducer case missing the phase guard its siblings have (could have
+     mistagged a later turn's entry on a stray/delayed event); the
+     `flag_correction` name duplicated across 3 files with no shared
+     constant; the inline-recap blanket-suppression bug described above;
+     the double-`fetchSessionContext` fix described above; toggle buttons
+     duplicated with inconsistent hover styling; `CORRECTION_FLAGGED` used
+     a different transcript-mutation idiom than its `RESPONSE_TEXT_CHUNK`
+     sibling. `npm test` (133/133), lint, and build all clean; re-verified
+     live after the fixes.
+   - **Known, deliberately not fixed**: the `flag_correction` tool's
+     structured arguments (mistake type/example/correction) are generated
+     by the model but never read anywhere — only the tool call's
+     *occurrence* is used (to tag `isCorrection` and compute
+     `correctedLiveCount`). Wiring up the full structured data would let a
+     future issue show exactly *what* was corrected live, not just a count
+     — a reasonable follow-up, not required by #5's acceptance criteria.
+
 ## Not started yet
 
-- Correction modes (inline vs. summary) — issue #5. Groundwork already in
-  place from issue #3 (`session-machine.ts`'s `recap()`/mode-lock,
-  `sessions.correction_mode_used`) but nothing in the model's system prompt
-  or the event mapper acts on it yet — `isCorrection` is never set by real
-  server events today, so `recap()` is unreachable until #5.
 - Error handling wiring (reconnect UX beyond basic drop/reconnect,
   beforeunload sweep, pending_summary retry, daily session cap) — spec §4,
   issue #6.
@@ -431,15 +501,17 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 2. [#2 Schema + student dashboard (read path)](https://github.com/Guri10/ai-english-tutor/issues/2) — **closed**. Blocked by #1
 3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — **closed**. Blocked by #2
 4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — **closed**. Blocked by #3
-5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — `needs-triage`. Blocked by #4
+5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — **closed**. Blocked by #4
 6. [#6 Error handling & reliability](https://github.com/Guri10/ai-english-tutor/issues/6) — `needs-triage`. Blocked by #5
 
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: commit/push issue #4's work, then triage #5 from
+Immediate next step: commit/push issue #5's work, then triage #6 from
 `needs-triage` to `ready-for-agent` and repeat the implement → review →
-close cycle. Note for #5's triage: it needs an actual design decision on
-how `correction_mode` reaches the model's behavior (system prompt wording?
-a tool-call hook?) — issue #3 only plumbed the field through as inert
-metadata.
+close cycle. #6 is the last issue in the chain (spec §4: reconnect UX,
+beforeunload sweep, `pending_summary` retry, daily session cap) — it also
+overlaps with the "known, deliberately deferred" limitations noted under
+issues #4 and #5 above (partial-write handling, the non-transactional
+`student_state` race), worth folding into the same pass rather than
+treating as unrelated.

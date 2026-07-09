@@ -41,6 +41,12 @@ export type EndPracticeSessionResult =
       levelAfter: string;
       streakCount: number;
       mistakes: SessionSummary["mistakes"];
+      // How many tutor turns were tagged isCorrection (a real flag_correction
+      // tool call, inline mode only) — lets the recap say "corrected N things
+      // live" instead of a flat "no mistakes" when mistakes is empty only
+      // because inline mode suppresses the summarization list, not because
+      // nothing happened.
+      correctedLiveCount: number;
     }
   | { ok: true; status: "pending_summary"; levelBefore: string }
   | { ok: false; error: string };
@@ -208,7 +214,11 @@ export async function endPracticeSession(
     levelBefore: input.levelBefore,
     levelAfter: applied.studentStateUpdate.levelScore,
     streakCount: applied.studentStateUpdate.streakCount,
-    mistakes: summary.mistakes,
+    // Inline mode already delivered corrections live (issue #5) — recurring_
+    // mistakes/level_history/student_state still update the same either way,
+    // only the recap's own mistakes list is mode-dependent.
+    mistakes: input.correctionMode === "inline" ? [] : summary.mistakes,
+    correctedLiveCount: rawTranscript.filter((entry) => entry.isCorrection).length,
   };
 }
 

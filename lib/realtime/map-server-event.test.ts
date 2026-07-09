@@ -95,6 +95,32 @@ describe("mapServerEventToAction", () => {
     expect(action).toBeNull();
   });
 
+  it("maps a flag_correction function-call-done event to CORRECTION_FLAGGED", () => {
+    const action = mapServerEventToAction(
+      {
+        type: "response.function_call_arguments.done",
+        name: "flag_correction",
+        call_id: "call-1",
+        arguments: '{"mistakeType":"past_tense"}',
+      },
+      context()
+    );
+    expect(action).toEqual({ type: "CORRECTION_FLAGGED" });
+  });
+
+  it("ignores a function-call-done event for a different tool", () => {
+    const action = mapServerEventToAction(
+      {
+        type: "response.function_call_arguments.done",
+        name: "some_other_tool",
+        call_id: "call-1",
+        arguments: "{}",
+      },
+      context()
+    );
+    expect(action).toBeNull();
+  });
+
   it("returns null for unrecognized event types", () => {
     expect(mapServerEventToAction({ type: "some.other.event" }, context())).toBeNull();
   });

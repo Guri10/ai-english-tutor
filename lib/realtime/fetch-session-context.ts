@@ -1,11 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CorrectionMode } from "./session-machine";
 import type { RecurringMistakeForPrompt } from "./build-system-prompt";
+import { fetchDefaultCorrectionMode } from "./fetch-default-correction-mode";
 import { logQueryErrors } from "@/lib/supabase/log-query-errors";
 import { DEFAULT_LEVEL_SCORE } from "@/lib/level";
 
 const RECURRING_MISTAKES_LIMIT = 10;
-const DEFAULT_CORRECTION_MODE: CorrectionMode = "inline";
 
 export type SessionContext = {
   levelScore: string;
@@ -17,7 +17,7 @@ export async function fetchSessionContext(
   supabase: SupabaseClient,
   userId: string
 ): Promise<SessionContext> {
-  const [studentStateResult, recurringMistakesResult, profileResult] =
+  const [studentStateResult, recurringMistakesResult, correctionMode] =
     await Promise.all([
       supabase
         .from("student_state")
@@ -30,25 +30,16 @@ export async function fetchSessionContext(
         .eq("user_id", userId)
         .order("last_seen_at", { ascending: false })
         .limit(RECURRING_MISTAKES_LIMIT),
-      supabase
-        .from("profiles")
-        .select("correction_mode")
-        .eq("id", userId)
-        .maybeSingle(),
+      fetchDefaultCorrectionMode(supabase, userId),
     ]);
 
-  logQueryErrors("fetchSessionContext", [
-    studentStateResult,
-    recurringMistakesResult,
-    profileResult,
-  ]);
+  logQueryErrors("fetchSessionContext", [studentStateResult, recurringMistakesResult]);
 
   const studentState = studentStateResult.data as { level_score: string } | null;
   const recurringMistakes =
     (recurringMistakesResult.data as
       | { mistake_type: string; last_example: string | null }[]
       | null) ?? [];
-  const profile = profileResult.data as { correction_mode: CorrectionMode } | null;
 
   return {
     levelScore: studentState?.level_score ?? DEFAULT_LEVEL_SCORE,
@@ -56,6 +47,6 @@ export async function fetchSessionContext(
       mistakeType: row.mistake_type,
       lastExample: row.last_example,
     })),
-    correctionMode: profile?.correction_mode ?? DEFAULT_CORRECTION_MODE,
+    correctionMode,
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialState, reduce, recap, type SessionState } from "./session-machine";
+import { initialState, reduce, type SessionState } from "./session-machine";
 
 function connectedState(correctionMode: SessionState["correctionMode"] = "inline"): SessionState {
   let state = initialState(correctionMode);
@@ -213,33 +213,42 @@ describe("session-machine", () => {
     });
   });
 
-  describe("recap", () => {
-    it("shows no corrections in inline mode even with pending mistakes", () => {
-      let state = connectedState("inline");
+  describe("CORRECTION_FLAGGED", () => {
+    it("tags the current tutor entry as a correction", () => {
+      let state = connectedState();
       state = reduce(state, { type: "MIC_DOWN" });
       state = reduce(state, { type: "MIC_UP" });
       state = reduce(state, { type: "RESPONSE_START" });
-      state = reduce(state, {
-        type: "RESPONSE_TEXT_CHUNK",
-        text: "quick note — it's 'I went'",
+      state = reduce(state, { type: "RESPONSE_TEXT_CHUNK", text: "It's 'I went', not 'I goed'." });
+      state = reduce(state, { type: "CORRECTION_FLAGGED" });
+
+      expect(state.transcript[1]).toMatchObject({
+        speaker: "tutor",
         isCorrection: true,
       });
-      expect(recap(state).showsCorrections).toBe(false);
+      expect(state.lastError).toBeNull();
     });
 
-    it("surfaces pending mistakes in summary mode", () => {
-      let state = connectedState("summary");
+    it("does not tag a different turn's tutor entry", () => {
+      let state = connectedState();
       state = reduce(state, { type: "MIC_DOWN" });
       state = reduce(state, { type: "MIC_UP" });
       state = reduce(state, { type: "RESPONSE_START" });
-      state = reduce(state, {
-        type: "RESPONSE_TEXT_CHUNK",
-        text: "noted for later",
-        isCorrection: true,
-      });
-      const result = recap(state);
-      expect(result.showsCorrections).toBe(true);
-      expect(result.mistakes).toHaveLength(1);
+      state = reduce(state, { type: "RESPONSE_DONE" });
+      state = reduce(state, { type: "MIC_DOWN" });
+      state = reduce(state, { type: "MIC_UP" });
+      state = reduce(state, { type: "RESPONSE_START" });
+
+      state = reduce(state, { type: "CORRECTION_FLAGGED" });
+
+      expect(state.transcript[1].isCorrection).toBeFalsy();
+      expect(state.transcript[3]).toMatchObject({ turn: 2, isCorrection: true });
+    });
+
+    it("is illegal outside the responding phase (e.g. a stray/delayed tool-call event)", () => {
+      const state = reduce(connectedState(), { type: "CORRECTION_FLAGGED" });
+      expect(state.transcript).toEqual([]);
+      expect(state.lastError).toMatch(/illegal/i);
     });
   });
 });

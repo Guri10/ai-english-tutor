@@ -18,6 +18,11 @@ import { endPracticeSession, type EndPracticeSessionResult } from "./actions";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 
+const CORRECTION_MODE_OPTIONS: { mode: CorrectionMode; label: string }[] = [
+  { mode: "inline", label: "Correct me as I go" },
+  { mode: "summary", label: "Correct me at the end" },
+];
+
 type TokenResponse = {
   value: string;
   expiresAt: number;
@@ -37,8 +42,12 @@ type SessionMeta = {
   correctionMode: CorrectionMode;
 };
 
-export function PracticeSession() {
-  const [state, dispatch] = useReducer(reduce, undefined, () => initialState());
+export function PracticeSession({
+  defaultCorrectionMode,
+}: {
+  defaultCorrectionMode: CorrectionMode;
+}) {
+  const [state, dispatch] = useReducer(reduce, defaultCorrectionMode, initialState);
   const stateRef = useRef(state);
   useEffect(() => {
     stateRef.current = state;
@@ -85,8 +94,15 @@ export function PracticeSession() {
     let pc: RTCPeerConnection | null = null;
     let localStream: MediaStream | null = null;
     try {
+      // Once connected once, the mode is locked (session-machine.ts) — a
+      // reconnect must request the same mode the session actually started
+      // with, not whatever the (now-hidden) pre-session toggle last showed.
+      const correctionModeForRequest =
+        sessionMetaRef.current?.correctionMode ?? stateRef.current.correctionMode;
       const tokenResponse = await fetch("/api/realtime-session", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ correctionMode: correctionModeForRequest }),
       });
       if (!tokenResponse.ok) {
         throw new Error(`token endpoint returned ${tokenResponse.status}`);
@@ -170,6 +186,21 @@ export function PracticeSession() {
         });
         if (!action) return;
         dispatch(action);
+        if (action.type === "CORRECTION_FLAGGED" && typeof parsed.call_id === "string") {
+          // Close out the tool call so it doesn't dangle unanswered — no
+          // response.create here, so acknowledging it doesn't add an extra
+          // spoken turn on top of the correction already delivered.
+          dc.send(
+            JSON.stringify({
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: parsed.call_id,
+                output: "ok",
+              },
+            })
+          );
+        }
         if (action.type === "CONNECTED" && isFirstConnection) {
           // Spec §3: the AI opens with a spoken greeting, unprompted, only
           // on the very first connection — a reconnect mid-session must not
@@ -277,13 +308,33 @@ export function PracticeSession() {
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-6">
       {state.phase === "idle" && (
-        <button
-          type="button"
-          onClick={startSession}
-          className="rounded-full border border-black/[.08] px-6 py-3 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
-        >
-          Start practice
-        </button>
+        <div className="flex flex-col items-center gap-4">
+          <div role="radiogroup" aria-label="Correction style" className="flex gap-2">
+            {CORRECTION_MODE_OPTIONS.map(({ mode, label }) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={state.correctionMode === mode}
+                onClick={() => dispatch({ type: "SET_CORRECTION_MODE", mode })}
+                className="rounded-full border border-black/[.08] px-4 py-2 text-sm transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+                style={{
+                  backgroundColor: state.correctionMode === mode ? "#2563eb" : undefined,
+                  color: state.correctionMode === mode ? "white" : undefined,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={startSession}
+            className="rounded-full border border-black/[.08] px-6 py-3 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+          >
+            Start practice
+          </button>
+        </div>
       )}
 
       {state.phase === "connecting" && <p>Connecting…</p>}
@@ -393,6 +444,12 @@ function Recap({
             </li>
           ))}
         </ul>
+      ) : result.correctedLiveCount > 0 ? (
+        <p>
+          Corrected {result.correctedLiveCount}{" "}
+          {result.correctedLiveCount === 1 ? "thing" : "things"} live during the
+          session.
+        </p>
       ) : (
         <p>No mistakes flagged this session — nice work!</p>
       )}

@@ -5,6 +5,12 @@
 
 export type CorrectionMode = "inline" | "summary";
 
+// The Realtime API tool name the model calls to signal a live inline
+// correction (route.ts registers it, the system prompt tells the model
+// about it, map-server-event.ts matches server events against it) — one
+// constant so a rename can't desync any of those three.
+export const FLAG_CORRECTION_TOOL_NAME = "flag_correction";
+
 export type Phase =
   | "idle"
   | "connecting"
@@ -22,17 +28,11 @@ export type TranscriptEntry = {
   isCorrection?: boolean;
 };
 
-export type MistakeNote = {
-  turn: number;
-  text: string;
-};
-
 export type SessionState = {
   phase: Phase;
   correctionMode: CorrectionMode;
   turn: number;
   transcript: TranscriptEntry[];
-  pendingMistakes: MistakeNote[];
   connectionDroppedDuring: Phase | null;
   lastError: string | null;
 };
@@ -45,12 +45,17 @@ export type Action =
   | { type: "MIC_DOWN" }
   | { type: "MIC_UP" }
   | { type: "RESPONSE_START" }
-  | { type: "RESPONSE_TEXT_CHUNK"; text: string; isCorrection?: boolean }
+  | { type: "RESPONSE_TEXT_CHUNK"; text: string }
   | { type: "RESPONSE_DONE" }
   | { type: "STUDENT_TRANSCRIPT"; turn: number; text: string }
+  | { type: "CORRECTION_FLAGGED" }
   | { type: "CONNECTION_DROPPED" }
   | { type: "RECONNECT" }
   | { type: "END_SESSION" };
+
+export function isCorrectionMode(value: unknown): value is CorrectionMode {
+  return value === "inline" || value === "summary";
+}
 
 export function initialState(correctionMode: CorrectionMode = "inline"): SessionState {
   return {
@@ -58,7 +63,6 @@ export function initialState(correctionMode: CorrectionMode = "inline"): Session
     correctionMode,
     turn: 0,
     transcript: [],
-    pendingMistakes: [],
     connectionDroppedDuring: null,
     lastError: null,
   };
@@ -151,22 +155,10 @@ export function reduce(state: SessionState, action: Action): SessionState {
       const entry = currentTutorEntry(state);
       if (!entry) return illegal(state, "no in-progress tutor entry to append to");
 
-      const updatedEntry: TranscriptEntry = {
-        ...entry,
-        text: entry.text + action.text,
-        isCorrection: entry.isCorrection || action.isCorrection,
-      };
+      const updatedEntry: TranscriptEntry = { ...entry, text: entry.text + action.text };
       const transcript = [...state.transcript.slice(0, -1), updatedEntry];
 
-      // Defensive: capture correction chunks into pendingMistakes regardless
-      // of mode. In "summary" mode the model is *instructed* never to emit
-      // these mid-conversation, but the client shouldn't silently drop one if
-      // it happens — it should still show up in the recap.
-      const pendingMistakes = action.isCorrection
-        ? [...state.pendingMistakes, { turn: state.turn, text: action.text }]
-        : state.pendingMistakes;
-
-      return { ...state, transcript, pendingMistakes, lastError: null };
+      return { ...state, transcript, lastError: null };
     }
 
     case "RESPONSE_DONE": {
@@ -191,6 +183,27 @@ export function reduce(state: SessionState, action: Action): SessionState {
       }
       const transcript = [...state.transcript];
       transcript[index] = { ...transcript[index], text: action.text };
+      return { ...state, transcript, lastError: null };
+    }
+
+    case "CORRECTION_FLAGGED": {
+      // Fired when the model calls the flag_correction tool alongside a
+      // spoken correction (inline mode) — tags the current turn's tutor
+      // entry, the same in-progress entry RESPONSE_TEXT_CHUNK appends to.
+      // Gated on "responding" like RESPONSE_TEXT_CHUNK, not just "is there a
+      // matching entry": the tool-call-done event arrives over the same
+      // ordered data channel as the response's other events, always before
+      // RESPONSE_DONE for that turn — a stray one arriving after (a
+      // different/later turn already started) must be rejected outright
+      // rather than silently tagging the wrong entry.
+      if (state.phase !== "responding") {
+        return illegal(state, `CORRECTION_FLAGGED is illegal in phase "${state.phase}"`);
+      }
+      const entry = currentTutorEntry(state);
+      if (!entry) return illegal(state, "no in-progress tutor entry to flag as a correction");
+
+      const updatedEntry: TranscriptEntry = { ...entry, isCorrection: true };
+      const transcript = [...state.transcript.slice(0, -1), updatedEntry];
       return { ...state, transcript, lastError: null };
     }
 
@@ -222,13 +235,4 @@ export function reduce(state: SessionState, action: Action): SessionState {
     default:
       return state;
   }
-}
-
-// Derived view used by the end-of-session recap screen. Not part of the
-// reducer's state shape because it's a pure projection, computed on demand.
-export function recap(state: SessionState): { showsCorrections: boolean; mistakes: MistakeNote[] } {
-  // Inline mode already delivered corrections live — recap is level/streak
-  // only. Summary mode surfaces them here for the first time.
-  const showsCorrections = state.correctionMode === "summary" && state.pendingMistakes.length > 0;
-  return { showsCorrections, mistakes: showsCorrections ? state.pendingMistakes : [] };
 }

@@ -117,6 +117,7 @@ describe("endPracticeSession", () => {
       levelAfter: "A2",
       streakCount: 1,
       mistakes: [],
+      correctedLiveCount: 0,
     });
     expect(transcriptsInsertMock).toHaveBeenCalledWith({
       session_id: "session-abc",
@@ -169,7 +170,7 @@ describe("endPracticeSession", () => {
       ],
     });
 
-    const result = await endPracticeSession(validInput);
+    const result = await endPracticeSession({ ...validInput, correctionMode: "summary" });
 
     expect(result).toEqual({
       ok: true,
@@ -180,6 +181,7 @@ describe("endPracticeSession", () => {
       mistakes: [
         { type: "article_usage", example: "I saw a elephant.", correction: "I saw an elephant." },
       ],
+      correctedLiveCount: 0,
     });
 
     expect(summarizeSessionMock).toHaveBeenCalledWith(
@@ -213,6 +215,44 @@ describe("endPracticeSession", () => {
       ],
       { onConflict: "user_id,mistake_type" }
     );
+  });
+
+  test("suppresses the recap's mistakes list for inline mode without changing what's written to recurring_mistakes", async () => {
+    summarizeSessionMock.mockResolvedValue({
+      levelScore: "A2",
+      topicsCovered: [],
+      mistakes: [
+        { type: "article_usage", example: "I saw a elephant.", correction: "I saw an elephant." },
+      ],
+    });
+
+    const result = await endPracticeSession({ ...validInput, correctionMode: "inline" });
+
+    expect(result).toMatchObject({ ok: true, status: "completed", mistakes: [], correctedLiveCount: 0 });
+    expect(recurringMistakesUpsertMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("counts corrections already tagged isCorrection in the transcript for the inline recap", async () => {
+    const result = await endPracticeSession({
+      ...validInput,
+      correctionMode: "inline",
+      transcript: [
+        { turn: 1, speaker: "student", text: "I goed to the park" },
+        { turn: 1, speaker: "tutor", text: "It's 'I went', not 'I goed'.", isCorrection: true },
+        { turn: 2, speaker: "student", text: "I see a elephant" },
+        { turn: 2, speaker: "tutor", text: "Nice! What did it do?" },
+        { turn: 3, speaker: "student", text: "It eat leaves" },
+        { turn: 3, speaker: "tutor", text: "It's 'ate', not 'eat'.", isCorrection: true },
+      ],
+    });
+
+    expect(result).toMatchObject({ ok: true, status: "completed", mistakes: [], correctedLiveCount: 2 });
+  });
+
+  test("reports zero correctedLiveCount for summary mode", async () => {
+    const result = await endPracticeSession({ ...validInput, correctionMode: "summary" });
+
+    expect(result).toMatchObject({ ok: true, status: "completed", correctedLiveCount: 0 });
   });
 
   test("batches multiple recurring_mistakes upserts into a single call", async () => {

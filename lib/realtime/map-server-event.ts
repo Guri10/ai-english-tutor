@@ -1,4 +1,4 @@
-import type { Action } from "./session-machine";
+import { FLAG_CORRECTION_TOOL_NAME, type Action } from "./session-machine";
 
 export type ServerEventContext = {
   // item_id -> turn, populated on input_audio_buffer.committed (which fires
@@ -31,6 +31,9 @@ export function mapServerEventToAction(
 
     case "response.done":
       return { type: "RESPONSE_DONE" };
+
+    case "response.function_call_arguments.done":
+      return event.name === FLAG_CORRECTION_TOOL_NAME ? { type: "CORRECTION_FLAGGED" } : null;
 
     case "input_audio_buffer.committed": {
       const itemId = event.item_id;
