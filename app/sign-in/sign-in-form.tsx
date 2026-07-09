@@ -12,17 +12,24 @@ export function SignInForm({ redirectTo }: { redirectTo?: string }) {
     setPending(true);
     setError(null);
     const supabase = createClient();
-    const { error: oauthError } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-      options: {
-        redirectTo: buildAuthCallbackUrl(
-          window.location.origin,
-          redirectTo ?? null
-        ),
-      },
-    });
-    if (oauthError) {
-      setError(oauthError.message);
+    try {
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: buildAuthCallbackUrl(
+            window.location.origin,
+            redirectTo ?? null
+          ),
+        },
+      });
+      if (oauthError) {
+        setError(oauthError.message);
+        setPending(false);
+      }
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "An unexpected error occurred";
+      setError(message);
       setPending(false);
     }
   }

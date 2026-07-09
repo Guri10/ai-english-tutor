@@ -45,7 +45,7 @@ export function sanitizeNextPath(next: string | null): string {
   return url.pathname + url.search + url.hash;
 }
 
-// Builds the callback URL Supabase redirects to after a magic-link click,
+// Builds the callback URL Supabase redirects to after sign-in,
 // embedding the (sanitized) post-login destination so the callback route
 // can send the user back to where they started.
 export function buildAuthCallbackUrl(
