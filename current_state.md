@@ -417,11 +417,90 @@ setup quirks*, not design decisions.
      future issue show exactly *what* was corrected live, not just a count
      — a reasonable follow-up, not required by #5's acceptance criteria.
 
+10. **Issue #6 (error handling & reliability) — implemented, reviewed,
+    manually verified live, closed. Last issue in the 6-issue chain.**
+    - **Key design decision (asked the user)**: how to trigger the 15-minute
+      sweep / `pending_summary` retry job on a schedule. Chose Supabase
+      `pg_cron` + `pg_net` over Vercel Cron — this project is on Vercel's
+      free Hobby plan (confirmed with the user), where Cron Jobs only run
+      once/day, too coarse for a 15-minute sweep. `pg_cron` schedules a
+      `net.http_post` to `/api/cron/session-maintenance` every 10 minutes,
+      authenticated via a `CRON_SECRET` bearer token stored in Supabase
+      Vault (`select vault.create_secret(...)`, run once outside git).
+    - **Session lifecycle moved earlier**: `sessions` rows are now created
+      at connect time (`POST /api/realtime-session`, `status: 'active'`)
+      instead of only at session end — a server-side sweep needs a row to
+      find. `lib/realtime/resolve-active-session.ts` reuses the same row on
+      a reconnect (dropped WebSocket) instead of starting a second one.
+    - New heartbeat endpoint (`app/api/practice-sessions/[id]/sync/route.ts`)
+      syncs the transcript and bumps `last_activity_at` — called after each
+      completed tutor turn and from a `beforeunload`/`visibilitychange`
+      handler via `navigator.sendBeacon` (the client-side best-effort
+      close-and-save spec §4 asks for).
+    - `lib/realtime/finalize-session.ts`: extracted shared summarize →
+      apply → write logic, used by both `endPracticeSession` (normal end)
+      and the new maintenance route's sweep/retry passes
+      (`lib/realtime/run-session-maintenance.ts`). Summarization itself
+      retries with backoff (`lib/summarization/summarize-session-with-retry.ts`)
+      before falling back to `pending_summary`.
+    - Daily per-user session cap (`lib/realtime/check-daily-session-cap.ts`,
+      default 10/day via `DAILY_SESSION_CAP` env var), checked in
+      `/api/realtime-session` before minting a token; skipped for
+      reconnects (see review fix below).
+    - Client: denied mic permission now gets a distinct, clear message
+      instead of a generic connect-failure one.
+    - **Found and fixed while reading the code for the Agent Brief**: the
+      OAuth callback route already redirected to
+      `/sign-in?error=auth-callback-failed` on a failed/expired code
+      exchange, but nothing ever read that query param — the error was
+      silently dropped. `app/sign-in/page.tsx`/`sign-in-form.tsx` now
+      display it.
+    - Fresh-context code review (high effort) found and fixed two real
+      races: (1) the sweep and a normal session end (or two overlapping
+      sweep runs) could both finalize the same session, duplicating
+      `level_history` and inflating `total_sessions`/streak — fixed via an
+      atomic claim (`finalizeSession` flips the row to a new transient
+      `finalizing` status before doing any work; losing the claim returns
+      `skipped` and does nothing further; the sweep's claim also
+      optimistically re-checks `last_activity_at` so a heartbeat that
+      revives a session mid-sweep correctly aborts the finalize instead of
+      cutting off a live session); (2) the daily cap counted the
+      in-progress session itself, so a student on their 10th session of the
+      day who hit a dropped connection would get blocked from
+      reconnecting — fixed by skipping the cap check for reconnects.
+      `npm test` (178/178), lint, and build all clean after the fixes.
+    - **Manually verified live** (Playwright, real Google OAuth + real
+      OpenAI Realtime + real Supabase, nothing mocked): full golden path —
+      start practice (daily-cap check passes, `active` row created), tutor's
+      opening greeting streams in and the heartbeat immediately syncs it
+      server-side, end session → summarized → recap renders → DB row
+      transitions to `completed` with `ended_at` set. Also confirmed live:
+      sign-in page shows the auth-callback error; the deployed maintenance
+      route correctly 401s unauthenticated/wrong-secret requests; the
+      `pg_cron` job is scheduled and active in the live database. **Not**
+      independently forced live (same limitation prior issues hit — can't
+      be scripted deterministically): a real 15-minute-inactive session
+      actually getting swept, a real WebSocket drop mid-turn, denied mic
+      permission's exact browser dialog — all three covered by
+      unit/integration tests with the relevant boundary mocked instead.
+    - Deployed to production (`ai-english-tutor-beta.vercel.app`).
+      `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET` added to Vercel
+      (Production + Preview) and to Supabase Vault. Two new migrations
+      applied to the live database (by the user, via
+      `supabase db push --linked`): `20260709120000_error_handling_reliability`
+      (sessions `active`/`finalizing` statuses, `last_activity_at`, index)
+      and `20260709120500_schedule_session_maintenance` (`pg_cron`/`pg_net`
+      extensions + the schedule itself).
+    - **Known, not fixed**: `pg_net`'s extension registration landed in the
+      `public` schema instead of Supabase's recommended `extensions` schema
+      (a Supabase security-advisor WARN, cosmetic — `net.*` functions work
+      fine either way). Low priority; `alter extension pg_net set schema
+      extensions;` would fix it if ever revisited.
+
 ## Not started yet
 
-- Error handling wiring (reconnect UX beyond basic drop/reconnect,
-  beforeunload sweep, pending_summary retry, daily session cap) — spec §4,
-  issue #6.
+Nothing — all 6 issues from the original design spec are closed. Future
+work would come from a new spec/issue, not this list.
 
 ## Environment quirks (read before running anything)
 
@@ -502,16 +581,24 @@ The design spec has been broken into 6 vertical-slice GitHub issues (via
 3. [#3 Session orchestration route + core push-to-talk voice loop](https://github.com/Guri10/ai-english-tutor/issues/3) — **closed**. Blocked by #2
 4. [#4 Post-session summarization + recap + progress updates](https://github.com/Guri10/ai-english-tutor/issues/4) — **closed**. Blocked by #3
 5. [#5 Correction modes (inline vs. summary)](https://github.com/Guri10/ai-english-tutor/issues/5) — **closed**. Blocked by #4
-6. [#6 Error handling & reliability](https://github.com/Guri10/ai-english-tutor/issues/6) — `needs-triage`. Blocked by #5
+6. [#6 Error handling & reliability](https://github.com/Guri10/ai-english-tutor/issues/6) — **closed**. Blocked by #5
 
 Tests are not a separate trailing issue — each slice's acceptance criteria
 includes tests for its own deterministic logic (TDD per slice), per spec §5.
 
-Immediate next step: commit/push issue #5's work, then triage #6 from
-`needs-triage` to `ready-for-agent` and repeat the implement → review →
-close cycle. #6 is the last issue in the chain (spec §4: reconnect UX,
-beforeunload sweep, `pending_summary` retry, daily session cap) — it also
-overlaps with the "known, deliberately deferred" limitations noted under
-issues #4 and #5 above (partial-write handling, the non-transactional
-`student_state` race), worth folding into the same pass rather than
-treating as unrelated.
+All 6 issues from the original design spec are now closed and deployed to
+production. Remaining known, deliberately-deferred items (not blocking,
+noted for whoever picks up new work):
+- The non-transactional `student_state` read-modify-write race flagged
+  under issues #4/#5/#6 (concurrent session-ends for the same user can lose
+  one session's worth of progress) — needs a DB-side atomic RPC to fix
+  properly.
+- `pg_net`'s extension schema placement (cosmetic Supabase advisor WARN,
+  see issue #6 above).
+- The `flag_correction` tool's structured mistake data (type/example/
+  correction) is generated by the model but never read beyond its
+  occurrence (issue #5) — could power a "what was corrected live" detail
+  view.
+
+No open issues remain in this repo as of this writing. Next work needs a
+new spec or issue to define scope.
