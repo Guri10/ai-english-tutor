@@ -589,10 +589,13 @@ includes tests for its own deterministic logic (TDD per slice), per spec §5.
 All 6 issues from the original design spec are now closed and deployed to
 production. Remaining known, deliberately-deferred items (not blocking,
 noted for whoever picks up new work):
-- The non-transactional `student_state` read-modify-write race flagged
-  under issues #4/#5/#6 (concurrent session-ends for the same user can lose
-  one session's worth of progress) — needs a DB-side atomic RPC to fix
-  properly.
+- **Risk, low priority**: the non-transactional `student_state`
+  read-modify-write race flagged under issues #4/#5/#6 — two session-ends
+  for the same user at the exact same moment (double tab, retried request)
+  can race and lose one session's worth of progress. Acceptable at
+  friends-and-family scale, not worth blocking on; needs a DB-side atomic
+  RPC (Postgres stored procedure) to fix properly if usage ever grows past
+  that scale.
 - `pg_net`'s extension schema placement (cosmetic Supabase advisor WARN,
   see issue #6 above).
 - The `flag_correction` tool's structured mistake data (type/example/
