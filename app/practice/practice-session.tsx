@@ -12,11 +12,19 @@ import {
   initialState,
   reduce,
   type CorrectionMode,
+  type TranscriptEntry,
 } from "@/lib/realtime/session-machine";
 import { mapServerEventToAction } from "@/lib/realtime/map-server-event";
 import { endPracticeSession, type EndPracticeSessionResult } from "./actions";
 
 const REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
+
+// Thrown only for connect failures with a message that's already safe and
+// meaningful to show the student verbatim (e.g. the daily-cap message from
+// the server) — every other throw site in beginConnection keeps a generic,
+// technical message that the catch block replaces with a fixed fallback
+// rather than leaking to the UI.
+class UserFacingConnectError extends Error {}
 
 const CORRECTION_MODE_OPTIONS: { mode: CorrectionMode; label: string }[] = [
   { mode: "inline", label: "Correct me as I go" },
@@ -28,6 +36,7 @@ type TokenResponse = {
   expiresAt: number;
   levelScore: string;
   correctionMode: CorrectionMode;
+  sessionId: string;
 };
 
 type SaveState =
@@ -37,7 +46,7 @@ type SaveState =
   | { phase: "saved"; result: Extract<EndPracticeSessionResult, { ok: true }> };
 
 type SessionMeta = {
-  startedAt: string;
+  sessionId: string;
   levelBefore: string;
   correctionMode: CorrectionMode;
 };
@@ -76,6 +85,50 @@ export function PracticeSession({
     }
   }, []);
 
+  // Fire-and-forget heartbeat (spec §4): keeps the server's transcript copy
+  // and last_activity_at fresh so the maintenance sweep never finalizes an
+  // abandoned session using a stale/empty transcript.
+  const syncSession = useCallback((transcript: TranscriptEntry[]) => {
+    const sessionId = sessionMetaRef.current?.sessionId;
+    if (!sessionId) return;
+    fetch(`/api/practice-sessions/${sessionId}/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript }),
+      keepalive: true,
+    }).catch((error) => {
+      console.error("practice session: heartbeat sync failed", error);
+    });
+  }, []);
+
+  // Best-effort close-and-save when the tab closes without an explicit "End
+  // session" (spec §4). visibilitychange is the one that actually fires
+  // reliably on iOS Safari (this app's primary target) when a tab is
+  // backgrounded or closed; beforeunload is kept too for desktop browsers
+  // where it does fire. sendBeacon (not fetch) is required here — the page
+  // may be gone before a normal fetch would complete.
+  useEffect(() => {
+    function beaconSync() {
+      const sessionId = sessionMetaRef.current?.sessionId;
+      const phase = stateRef.current.phase;
+      if (!sessionId || phase === "idle" || phase === "ended") return;
+      const payload = JSON.stringify({ transcript: stateRef.current.transcript });
+      navigator.sendBeacon(
+        `/api/practice-sessions/${sessionId}/sync`,
+        new Blob([payload], { type: "application/json" })
+      );
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "hidden") beaconSync();
+    }
+    window.addEventListener("beforeunload", beaconSync);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", beaconSync);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -102,21 +155,30 @@ export function PracticeSession({
       const tokenResponse = await fetch("/api/realtime-session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ correctionMode: correctionModeForRequest }),
+        body: JSON.stringify({
+          correctionMode: correctionModeForRequest,
+          sessionId: sessionMetaRef.current?.sessionId,
+        }),
       });
       if (!tokenResponse.ok) {
+        if (tokenResponse.status === 429) {
+          const errorBody: { error?: string } | null = await tokenResponse
+            .json()
+            .catch(() => null);
+          throw new UserFacingConnectError(
+            errorBody?.error ?? "Daily session limit reached. Try again tomorrow."
+          );
+        }
         throw new Error(`token endpoint returned ${tokenResponse.status}`);
       }
       const token: TokenResponse = await tokenResponse.json();
 
       const isFirstConnection = !sessionMetaRef.current;
-      if (isFirstConnection) {
-        sessionMetaRef.current = {
-          startedAt: new Date().toISOString(),
-          levelBefore: token.levelScore,
-          correctionMode: token.correctionMode,
-        };
-      }
+      sessionMetaRef.current = {
+        sessionId: token.sessionId,
+        levelBefore: sessionMetaRef.current?.levelBefore ?? token.levelScore,
+        correctionMode: token.correctionMode,
+      };
 
       pc = new RTCPeerConnection();
       const thisConnection = pc;
@@ -155,7 +217,21 @@ export function PracticeSession({
         }
       };
 
-      localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (error) {
+        // Denied/blocked mic permission (spec §4, common on iOS Safari) gets
+        // its own clear message — everything else in this function's catch
+        // falls back to a generic one rather than leaking a technical error.
+        const isPermissionDenied =
+          error instanceof DOMException &&
+          (error.name === "NotAllowedError" || error.name === "PermissionDeniedError");
+        throw new UserFacingConnectError(
+          isPermissionDenied
+            ? "Microphone access was denied. Please allow microphone access in your browser settings and try again."
+            : "Could not access your microphone."
+        );
+      }
       if (pcRef.current !== null || !isMountedRef.current) {
         // Superseded by a newer attempt, or unmounted, while awaiting the
         // mic prompt — abandon locally without touching shared refs.
@@ -186,6 +262,15 @@ export function PracticeSession({
         });
         if (!action) return;
         dispatch(action);
+        if (action.type === "RESPONSE_DONE") {
+          // A completed tutor turn is a natural sync point — keeps the
+          // server-side transcript (and last_activity_at, for the sweep)
+          // fresh without waiting for beforeunload/visibilitychange to fire.
+          // reduce() here mirrors dispatch()'s own computation rather than
+          // reading stateRef (which won't reflect this action until the next
+          // render), the same pattern micDown/micUp already use.
+          syncSession(reduce(stateRef.current, action).transcript);
+        }
         if (action.type === "CORRECTION_FLAGGED" && typeof parsed.call_id === "string") {
           // Close out the tool call so it doesn't dangle unanswered — no
           // response.create here, so acknowledging it doesn't add an extra
@@ -251,9 +336,13 @@ export function PracticeSession({
       localStream?.getTracks().forEach((t) => t.stop());
       if (pcRef.current !== null || !isMountedRef.current) return; // superseded — don't clobber a newer attempt
       console.error("practice session: connect failed", error);
-      dispatch({ type: "CONNECT_FAILED", reason: "Could not start the session." });
+      const reason =
+        error instanceof UserFacingConnectError
+          ? error.message
+          : "Could not start the session.";
+      dispatch({ type: "CONNECT_FAILED", reason });
     }
-  }, [cleanupConnection]);
+  }, [cleanupConnection, syncSession]);
 
   const startSession = useCallback(() => {
     dispatch({ type: "CONNECT" });
@@ -294,8 +383,8 @@ export function PracticeSession({
 
     setSaveState({ phase: "saving" });
     const result = await endPracticeSession({
+      sessionId: meta.sessionId,
       transcript,
-      startedAt: meta.startedAt,
       endedAt: new Date().toISOString(),
       levelBefore: meta.levelBefore,
       correctionMode: meta.correctionMode,

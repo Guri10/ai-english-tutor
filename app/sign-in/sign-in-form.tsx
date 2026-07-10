@@ -4,9 +4,15 @@ import { useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { buildAuthCallbackUrl } from "@/lib/auth/route-guard";
 
-export function SignInForm({ redirectTo }: { redirectTo?: string }) {
+export function SignInForm({
+  redirectTo,
+  initialError,
+}: {
+  redirectTo?: string;
+  initialError?: string;
+}) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError ?? null);
 
   async function handleSignIn() {
     setPending(true);
