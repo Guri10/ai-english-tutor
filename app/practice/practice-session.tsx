@@ -401,7 +401,7 @@ export function PracticeSession({
   const canEndSession = state.phase !== "idle" && state.phase !== "ended";
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center gap-6 pb-56">
+    <div className={`flex w-full max-w-md flex-col items-center gap-6 ${canEndSession ? "pb-56" : ""}`}>
       {state.phase === "idle" && (
         <div className="flex flex-col items-center gap-4">
           <div role="radiogroup" aria-label="Correction style" className="flex gap-2">
@@ -462,7 +462,7 @@ export function PracticeSession({
           ))}
         </ul>
       )}
-      <div ref={transcriptEndRef} />
+      <div ref={transcriptEndRef} className="scroll-mb-56" />
 
       {state.phase === "ended" && (
         <div className="flex w-full flex-col items-center gap-4 text-center">

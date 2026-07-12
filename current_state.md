@@ -511,14 +511,17 @@ setup quirks*, not design decisions.
       transcript list. Combined with the fixed bar, the student never needs
       to manually scroll during a session — each new message scrolls into
       view just above the bar as soon as it arrives. Committed as a48de1b.
-    - **Manually verified live** (per task brief's Step 7): full session
-      with multiple turns, transcript overflowed multiple screens, all new
-      messages auto-scrolled into view above the fixed bar without overlap,
-      bar stayed pinned to bottom throughout. Idle/error/ended phases render
-      correctly (no bar, no broken gap). Mobile viewport + safe-area-inset
-      simulation confirmed bar not obscured by home indicator.
-    - **All tests pass**: lint, build, full `npm test` suite (178/178) — no
-      regressions in any session-machine / map-server-event / existing module.
+    - **Review fixes**: the sentinel div now carries `scroll-mb-56` so
+      `scrollIntoView({ block: "end" })` leaves clearance for the fixed bar
+      instead of landing the newest message behind it, and the outer
+      wrapper's `pb-56` spacer is now conditional on `canEndSession` so the
+      idle/ended screens don't carry an unnecessary ~224px gap.
+    - **Automated checks only** — lint, build, and the full `npm test` suite
+      (178/178) all pass with no regressions. Live browser verification
+      (does the bar stay pinned, does auto-scroll clear it, does mobile
+      safe-area work) requires signing in via Google OAuth, which an agent
+      cannot do — **this has not been manually verified in a real browser
+      and is still pending human verification** before merge.
 
 ## Not started yet
 
