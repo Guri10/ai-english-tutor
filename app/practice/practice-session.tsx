@@ -395,7 +395,7 @@ export function PracticeSession({
   const canEndSession = state.phase !== "idle" && state.phase !== "ended";
 
   return (
-    <div className="flex w-full max-w-md flex-col items-center gap-6">
+    <div className="flex w-full max-w-md flex-col items-center gap-6 pb-56">
       {state.phase === "idle" && (
         <div className="flex flex-col items-center gap-4">
           <div role="radiogroup" aria-label="Correction style" className="flex gap-2">
@@ -441,23 +441,6 @@ export function PracticeSession({
         </div>
       )}
 
-      {["ready", "recording", "committing", "responding"].includes(state.phase) && (
-        <button
-          type="button"
-          disabled={state.phase !== "ready" && state.phase !== "recording"}
-          onPointerDown={micDown}
-          onPointerUp={micUp}
-          onPointerCancel={micUp}
-          className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-black/[.15] text-sm font-medium transition-colors disabled:opacity-50 dark:border-white/[.2]"
-          style={{
-            backgroundColor: state.phase === "recording" ? "#ef4444" : undefined,
-            color: state.phase === "recording" ? "white" : undefined,
-          }}
-        >
-          {state.phase === "recording" ? "Recording…" : "Hold to talk"}
-        </button>
-      )}
-
       {state.transcript.length > 0 && (
         <ul className="flex w-full flex-col gap-2">
           {state.transcript.map((entry, index) => (
@@ -474,16 +457,6 @@ export function PracticeSession({
         </ul>
       )}
 
-      {canEndSession && (
-        <button
-          type="button"
-          onClick={endSession}
-          className="rounded-full border border-black/[.08] px-6 py-3 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
-        >
-          End session
-        </button>
-      )}
-
       {state.phase === "ended" && (
         <div className="flex w-full flex-col items-center gap-4 text-center">
           {saveState.phase === "saving" && <p>Saving your session…</p>}
@@ -496,6 +469,34 @@ export function PracticeSession({
           <a href="/practice" className="underline">
             Start a new session
           </a>
+        </div>
+      )}
+
+      {canEndSession && (
+        <div className="fixed inset-x-0 bottom-0 flex flex-col items-center gap-3 border-t border-black/[.08] bg-background px-4 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] dark:border-white/[.145]">
+          {["ready", "recording", "committing", "responding"].includes(state.phase) && (
+            <button
+              type="button"
+              disabled={state.phase !== "ready" && state.phase !== "recording"}
+              onPointerDown={micDown}
+              onPointerUp={micUp}
+              onPointerCancel={micUp}
+              className="flex h-24 w-24 items-center justify-center rounded-full border-2 border-black/[.15] text-sm font-medium transition-colors disabled:opacity-50 dark:border-white/[.2]"
+              style={{
+                backgroundColor: state.phase === "recording" ? "#ef4444" : undefined,
+                color: state.phase === "recording" ? "white" : undefined,
+              }}
+            >
+              {state.phase === "recording" ? "Recording…" : "Hold to talk"}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={endSession}
+            className="rounded-full border border-black/[.08] px-6 py-3 transition-colors hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a]"
+          >
+            End session
+          </button>
         </div>
       )}
     </div>
