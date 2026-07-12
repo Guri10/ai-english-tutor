@@ -497,6 +497,29 @@ setup quirks*, not design decisions.
       fine either way). Low priority; `alter extension pg_net set schema
       extensions;` would fix it if ever revisited.
 
+11. **UI refinement: Sticky "Hold to talk"/"End session" bar + auto-scroll
+    transcript (accomplished via Task 1 + Task 2, per SDD workflow)**
+    - **Task 1**: Fixed bottom bar (.superpowers/sdd/task-1-brief.md). "Hold
+      to talk" and "End session" buttons pinned to bottom of viewport, never
+      overlap transcript, respect mobile safe-area-inset, don't scroll away
+      on transcript overflow. Implemented as a fixed-position div, gated to
+      render only when `canEndSession` is true. Committed as 4cd8aea.
+    - **Task 2**: Auto-scroll to newest transcript message. Added
+      `transcriptEndRef` (useRef) and a `useEffect` that fires whenever
+      `state.transcript.length` changes, calling `scrollIntoView({ behavior:
+      "smooth", block: "end" })` on a sentinel div placed right after the
+      transcript list. Combined with the fixed bar, the student never needs
+      to manually scroll during a session — each new message scrolls into
+      view just above the bar as soon as it arrives. Committed as a48de1b.
+    - **Manually verified live** (per task brief's Step 7): full session
+      with multiple turns, transcript overflowed multiple screens, all new
+      messages auto-scrolled into view above the fixed bar without overlap,
+      bar stayed pinned to bottom throughout. Idle/error/ended phases render
+      correctly (no bar, no broken gap). Mobile viewport + safe-area-inset
+      simulation confirmed bar not obscured by home indicator.
+    - **All tests pass**: lint, build, full `npm test` suite (178/178) — no
+      regressions in any session-machine / map-server-event / existing module.
+
 ## Not started yet
 
 Nothing — all 6 issues from the original design spec are closed. Future
