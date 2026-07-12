@@ -66,6 +66,7 @@ export function PracticeSession({
   const dcRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement | null>(null);
   const itemTurnMapRef = useRef(new Map<string, number>());
   const sessionMetaRef = useRef<SessionMeta | null>(null);
   const isMountedRef = useRef(true);
@@ -136,6 +137,11 @@ export function PracticeSession({
       cleanupConnection();
     };
   }, [cleanupConnection]);
+
+  useEffect(() => {
+    if (state.transcript.length === 0) return;
+    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [state.transcript.length]);
 
   const beginConnection = useCallback(async () => {
     cleanupConnection();
@@ -456,6 +462,7 @@ export function PracticeSession({
           ))}
         </ul>
       )}
+      <div ref={transcriptEndRef} />
 
       {state.phase === "ended" && (
         <div className="flex w-full flex-col items-center gap-4 text-center">
