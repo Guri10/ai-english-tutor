@@ -497,6 +497,32 @@ setup quirks*, not design decisions.
       fine either way). Low priority; `alter extension pg_net set schema
       extensions;` would fix it if ever revisited.
 
+11. **UI refinement: Sticky "Hold to talk"/"End session" bar + auto-scroll
+    transcript (accomplished via Task 1 + Task 2, per SDD workflow)**
+    - **Task 1**: Fixed bottom bar (.superpowers/sdd/task-1-brief.md). "Hold
+      to talk" and "End session" buttons pinned to bottom of viewport, never
+      overlap transcript, respect mobile safe-area-inset, don't scroll away
+      on transcript overflow. Implemented as a fixed-position div, gated to
+      render only when `canEndSession` is true. Committed as 4cd8aea.
+    - **Task 2**: Auto-scroll to newest transcript message. Added
+      `transcriptEndRef` (useRef) and a `useEffect` that fires whenever
+      `state.transcript.length` changes, calling `scrollIntoView({ behavior:
+      "smooth", block: "end" })` on a sentinel div placed right after the
+      transcript list. Combined with the fixed bar, the student never needs
+      to manually scroll during a session — each new message scrolls into
+      view just above the bar as soon as it arrives. Committed as a48de1b.
+    - **Review fixes**: the sentinel div now carries `scroll-mb-56` so
+      `scrollIntoView({ block: "end" })` leaves clearance for the fixed bar
+      instead of landing the newest message behind it, and the outer
+      wrapper's `pb-56` spacer is now conditional on `canEndSession` so the
+      idle/ended screens don't carry an unnecessary ~224px gap.
+    - **Automated checks only** — lint, build, and the full `npm test` suite
+      (178/178) all pass with no regressions. Live browser verification
+      (does the bar stay pinned, does auto-scroll clear it, does mobile
+      safe-area work) requires signing in via Google OAuth, which an agent
+      cannot do — **this has not been manually verified in a real browser
+      and is still pending human verification** before merge.
+
 ## Not started yet
 
 Nothing — all 6 issues from the original design spec are closed. Future
